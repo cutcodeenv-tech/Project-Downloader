@@ -17,9 +17,11 @@ from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 
+from dotenv import load_dotenv
+
 # === НАСТРОЙКИ ===
 SPREADSHEET_ID = '105j4aHH6tKW3iJkRCBRS586KLu4ROXqVJuLlU-gpZkk'
-CREDENTIALS_FILE = '/Users/theseus/ASSETS/data_files/2.json'
+# CREDENTIALS_FILE = '/Users/theseus/ASSETS/data_files/2.json'  # больше не нужен
 SHEET_NAME = 'Лист1'
 COLUMN = 'B'
 DOWNLOAD_DIR = os.path.expanduser('~/Downloads/media_from_sheet')
@@ -28,9 +30,24 @@ TOR_PROXY = f'socks5h://127.0.0.1:{TOR_PORT}'
 
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
+load_dotenv()
+
 # === АВТОРИЗАЦИЯ ===
 scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-creds = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=scopes)
+service_account_info = {
+    "type": os.getenv("TYPE"),
+    "project_id": os.getenv("PROJECT_ID"),
+    "private_key_id": os.getenv("PRIVATE_KEY_ID"),
+    "private_key": os.getenv("PRIVATE_KEY").replace('\\n', '\n'),
+    "client_email": os.getenv("CLIENT_EMAIL"),
+    "client_id": os.getenv("CLIENT_ID"),
+    "auth_uri": os.getenv("AUTH_URI"),
+    "token_uri": os.getenv("TOKEN_URI"),
+    "auth_provider_x509_cert_url": os.getenv("AUTH_PROVIDER_X509_CERT_URL"),
+    "client_x509_cert_url": os.getenv("CLIENT_X509_CERT_URL"),
+    "universe_domain": os.getenv("UNIVERSE_DOMAIN"),
+}
+creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
 gc = gspread.authorize(creds)
 
 # === ЧТЕНИЕ ТАБЛИЦЫ ===
