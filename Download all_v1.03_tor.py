@@ -20,11 +20,18 @@ import time
 from dotenv import load_dotenv
 import datetime
 
+def get_column_from_user():
+    while True:
+        col = input('Введите латинскую заглавную букву колонки таблицы (например, B): ').strip().upper()
+        if len(col) == 1 and 'A' <= col <= 'Z':
+            return col
+        print('Ошибка: введите одну латинскую заглавную букву (A-Z).')
+
 # === НАСТРОЙКИ ===
 SPREADSHEET_ID = '105j4aHH6tKW3iJkRCBRS586KLu4ROXqVJuLlU-gpZkk'
 # CREDENTIALS_FILE = '/Users/theseus/ASSETS/data_files/2.json'  # больше не нужен
 SHEET_NAME = 'Лист1'
-COLUMN = 'B'
+COLUMN = get_column_from_user()
 DOWNLOAD_DIR = os.path.expanduser('~/Downloads/media_from_sheet')
 TOR_PORT = 9150  # или 9050, если у вас системный Tor
 TOR_PROXY = f'socks5h://127.0.0.1:{TOR_PORT}'
