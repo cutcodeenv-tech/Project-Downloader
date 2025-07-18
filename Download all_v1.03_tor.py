@@ -185,10 +185,27 @@ def log_unrecognized_url(url):
     with open(filepath, 'a', encoding='utf-8') as f:
         f.write(url + '\n')
 
+def count_links_in_column(data):
+    total = 0
+    for cell in data:
+        links = re.findall(r'https?://[^\s,;"\'<>]+', cell)
+        total += len(links)
+    return total
+
+def print_progress_bar(current, total, bar_length=40):
+    percent = float(current) / total if total else 0
+    arrow = '-' * int(round(percent * bar_length) - 1) + '>' if percent > 0 else ''
+    spaces = ' ' * (bar_length - len(arrow))
+    print(f'\rПрогресс: [{arrow}{spaces}] {current}/{total}', end='')
+    if current == total:
+        print()
+
+total_links = count_links_in_column(data)
+processed_links = 0
+
 for i, cell in enumerate(data, 1):
     if cell.strip():
-        # Ищем все http/https ссылки в тексте
-        links = re.findall(r'https?://[^\s,;\"\'<>]+', cell)
+        links = re.findall(r'https?://[^\s,;"\'<>]+', cell)
         for idx, url in enumerate(links, 1):
             # --- Новый блок для Яндекс.Видео ---
             if "yandex.ru/video/" in url:
@@ -245,5 +262,7 @@ for i, cell in enumerate(data, 1):
             else:
                 print(f"[?] Неизвестный тип ссылки: {url}")
                 log_unrecognized_url(url)
+            processed_links += 1
+            print_progress_bar(processed_links, total_links)
 
 print("Готово!")
