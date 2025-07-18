@@ -18,6 +18,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 
 from dotenv import load_dotenv
+import datetime
 
 # === НАСТРОЙКИ ===
 SPREADSHEET_ID = '105j4aHH6tKW3iJkRCBRS586KLu4ROXqVJuLlU-gpZkk'
@@ -168,6 +169,15 @@ def get_yandex_video_original_url(yandex_url):
         print(f"Ошибка при парсинге {yandex_url}: {e}")
         return None
 
+def log_unrecognized_url(url):
+    now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    filename = f"parse_error_{now}.txt"
+    error_dir = os.path.join(DOWNLOAD_DIR, 'parse_error')
+    os.makedirs(error_dir, exist_ok=True)
+    filepath = os.path.join(error_dir, filename)
+    with open(filepath, 'a', encoding='utf-8') as f:
+        f.write(url + '\n')
+
 for i, cell in enumerate(data, 1):
     if cell.strip():
         # Ищем все http/https ссылки в тексте
@@ -227,5 +237,6 @@ for i, cell in enumerate(data, 1):
                     print(f"Ошибка при скачивании {direct_url}: {e}")
             else:
                 print(f"[?] Неизвестный тип ссылки: {url}")
+                log_unrecognized_url(url)
 
 print("Готово!")

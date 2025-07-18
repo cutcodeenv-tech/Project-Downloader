@@ -65,4 +65,6 @@ for pkg in "${REQUIRED_PYTHON_PACKAGES[@]}"; do
     fi
 done
 
+pip install python-dotenv
+
 echo "\nВсе необходимые зависимости установлены!" 

@@ -13,10 +13,8 @@ bash install.sh
 
 **Команда для запуска:**
 ```bash
-python3 Download\ all_v1.03_подключение\ через\ ТОР.py
+python3 Download\ all_v1.03_tor.py
 ```
 
 - Работает на MacBook Pro M1
 - Все скачанные медиа сохраняются в папку `~/Downloads/media_from_sheet` 
-
-https://docs.google.com/spreadsheets/d/105j4aHH6tKW3iJkRCBRS586KLu4ROXqVJuLlU-gpZkk/edit?usp=sharing
