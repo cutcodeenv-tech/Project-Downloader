@@ -33,6 +33,11 @@ SPREADSHEET_ID = '105j4aHH6tKW3iJkRCBRS586KLu4ROXqVJuLlU-gpZkk'
 SHEET_NAME = 'Лист1'
 COLUMN = get_column_from_user()
 DOWNLOAD_DIR = os.path.expanduser('~/Downloads/media_from_sheet')
+# --- Новый блок: создаём поддиректорию для сохранения медиафайлов ---
+from datetime import datetime as _dt
+subdir_name = f"{COLUMN}_{_dt.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+MEDIA_DIR = os.path.join(DOWNLOAD_DIR, subdir_name)
+os.makedirs(MEDIA_DIR, exist_ok=True)
 TOR_PORT = 9150  # или 9050, если у вас системный Tor
 TOR_PROXY = f'socks5h://127.0.0.1:{TOR_PORT}'
 
@@ -176,14 +181,19 @@ def get_yandex_video_original_url(yandex_url):
         print(f"Ошибка при парсинге {yandex_url}: {e}")
         return None
 
-def log_unrecognized_url(url):
+def log_unrecognized_url(url, cell_ref=None, idx=None):
     now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     filename = f"parse_error_{now}.txt"
-    error_dir = os.path.join(DOWNLOAD_DIR, 'parse_error')
+    error_dir = os.path.join(MEDIA_DIR, 'parse_error')
     os.makedirs(error_dir, exist_ok=True)
     filepath = os.path.join(error_dir, filename)
     with open(filepath, 'a', encoding='utf-8') as f:
-        f.write(url + '\n')
+        if cell_ref and idx is not None:
+            f.write(f"{cell_ref} [{idx}]: {url}\n")
+        elif cell_ref:
+            f.write(f"{cell_ref}: {url}\n")
+        else:
+            f.write(url + '\n')
 
 def count_links_in_column(data):
     total = 0
@@ -221,7 +231,7 @@ for i, cell in enumerate(data, 1):
             if is_video_url(url):
                 filename = f"{i}_{idx}.%(ext)s" if len(links) > 1 else f"{i}.%(ext)s"
                 ydl_opts = {
-                    'outtmpl': os.path.join(DOWNLOAD_DIR, filename),
+                    'outtmpl': os.path.join(MEDIA_DIR, filename),
                     'concurrent_fragment_downloads': 8,
                     'fragment_retries': 10,
                     'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4',
@@ -251,7 +261,7 @@ for i, cell in enumerate(data, 1):
                     response = requests.get(direct_url, headers=headers, timeout=15)
                     if response.status_code == 200 and response.headers['Content-Type'].startswith('image'):
                         filename = sanitize_filename(direct_url, i, idx, is_image=True)
-                        filepath = os.path.join(DOWNLOAD_DIR, filename)
+                        filepath = os.path.join(MEDIA_DIR, filename)
                         with open(filepath, 'wb') as f:
                             f.write(response.content)
                         print(f"Скачано: {filepath}")
@@ -261,7 +271,8 @@ for i, cell in enumerate(data, 1):
                     print(f"Ошибка при скачивании {direct_url}: {e}")
             else:
                 print(f"[?] Неизвестный тип ссылки: {url}")
-                log_unrecognized_url(url)
+                cell_ref = f"{COLUMN}{i}"
+                log_unrecognized_url(url, cell_ref=cell_ref, idx=idx)
             processed_links += 1
             print_progress_bar(processed_links, total_links)
 
