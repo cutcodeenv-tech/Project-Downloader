@@ -16,6 +16,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 import time
+import base64
 
 from dotenv import load_dotenv
 import datetime
@@ -92,6 +93,12 @@ def is_image_url(url):
         return True
     return False
 
+def is_news_url(url):
+    news_domains = [
+        'starhit.ru', 'rbc.ru', 'rambler.ru'
+    ]
+    return any(domain in url for domain in news_domains)
+
 def get_direct_image_url(url):
     """Если это images.app.goo.gl, пытаемся получить прямую ссылку через selenium"""
     if 'images.app.goo.gl' not in url:
@@ -113,11 +120,12 @@ def get_direct_image_url(url):
         driver.quit()
     return None
 
-def sanitize_filename(url, row_num, idx, is_image=True):
+def sanitize_filename(url, row_num, idx, is_image=True, column=None):
     ext = os.path.splitext(url.split('?')[0])[1]
     if not ext or len(ext) > 5:
         ext = '.jpg' if is_image else '.mp4'
-    return f"{row_num}_{idx}{ext}"
+    cell_ref = f"{column}{row_num}" if column else str(row_num)
+    return f"{cell_ref}_{idx}{ext}"
 
 def get_yandex_video_original_url(yandex_url):
     try:
@@ -229,7 +237,8 @@ for i, cell in enumerate(data, 1):
                     continue
             # --- Дальше как обычно ---
             if is_video_url(url):
-                filename = f"{i}_{idx}.%(ext)s" if len(links) > 1 else f"{i}.%(ext)s"
+                cell_ref = f"{COLUMN}{i}"
+                filename = f"{cell_ref}_{idx}.%(ext)s" if len(links) > 1 else f"{cell_ref}.%(ext)s"
                 ydl_opts = {
                     'outtmpl': os.path.join(MEDIA_DIR, filename),
                     'concurrent_fragment_downloads': 8,
@@ -247,12 +256,57 @@ for i, cell in enumerate(data, 1):
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download([url])
                 except Exception as e:
+                    err_str = str(e)
                     print(f"Ошибка при скачивании видео {url}: {e}")
+                    # Логируем неудачную попытку скачивания видео
+                    log_unrecognized_url(url, cell_ref=cell_ref, idx=idx)
+                    # --- Новый обработчик: если ошибка 'There is no video in this post', пробуем скачать картинку ---
+                    if 'There is no video in this post' in err_str:
+                        print(f"[INSTAGRAM] Видео не найдено, пробую скачать картинку из поста {url}")
+                        try:
+                            headers = {
+                                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                            }
+                            resp = requests.get(url, headers=headers, timeout=15)
+                            if resp.status_code == 200:
+                                soup = BeautifulSoup(resp.text, 'html.parser')
+                                img_url = None
+                                # Ищем <meta property="og:image" ...>
+                                meta = soup.find('meta', property='og:image')
+                                if meta and meta.get('content'):
+                                    img_url = meta['content']
+                                # Если не нашли, ищем <img>
+                                if not img_url:
+                                    img = soup.find('img')
+                                    if img and img.get('src'):
+                                        img_url = img['src']
+                                if img_url:
+                                    img_filename = sanitize_filename(img_url, i, idx, is_image=True, column=COLUMN)
+                                    filepath = os.path.join(MEDIA_DIR, img_filename)
+                                    img_resp = requests.get(img_url, headers=headers, timeout=15)
+                                    if img_resp.status_code == 200:
+                                        with open(filepath, 'wb') as f:
+                                            f.write(img_resp.content)
+                                        print(f"Скачано: {filepath}")
+                                    else:
+                                        print(f"Не удалось скачать картинку {img_url} (status {img_resp.status_code})")
+                                        log_unrecognized_url(img_url, cell_ref=cell_ref, idx=idx)
+                                else:
+                                    print(f"Картинка не найдена на странице {url}")
+                                    log_unrecognized_url(url, cell_ref=cell_ref, idx=idx)
+                            else:
+                                print(f"Не удалось получить страницу {url} (status {resp.status_code})")
+                                log_unrecognized_url(url, cell_ref=cell_ref, idx=idx)
+                        except Exception as e2:
+                            print(f"Ошибка при скачивании картинки из поста Instagram: {e2}")
+                            log_unrecognized_url(url, cell_ref=cell_ref, idx=idx)
             elif is_image_url(url):
                 print(f"[КАРТИНКА] Обрабатываю строку {i}, ссылка {url}")
                 direct_url = get_direct_image_url(url)
                 if not direct_url:
                     print(f"Не удалось получить прямую ссылку для {url}")
+                    cell_ref = f"{COLUMN}{i}"
+                    log_unrecognized_url(url, cell_ref=cell_ref, idx=idx)
                     continue
                 try:
                     headers = {
@@ -260,15 +314,23 @@ for i, cell in enumerate(data, 1):
                     }
                     response = requests.get(direct_url, headers=headers, timeout=15)
                     if response.status_code == 200 and response.headers['Content-Type'].startswith('image'):
-                        filename = sanitize_filename(direct_url, i, idx, is_image=True)
+                        filename = sanitize_filename(direct_url, i, idx, is_image=True, column=COLUMN)
                         filepath = os.path.join(MEDIA_DIR, filename)
                         with open(filepath, 'wb') as f:
                             f.write(response.content)
                         print(f"Скачано: {filepath}")
                     else:
                         print(f"Не удалось скачать {direct_url} (status {response.status_code})")
+                        cell_ref = f"{COLUMN}{i}"
+                        log_unrecognized_url(direct_url, cell_ref=cell_ref, idx=idx)
                 except Exception as e:
                     print(f"Ошибка при скачивании {direct_url}: {e}")
+                    cell_ref = f"{COLUMN}{i}"
+                    log_unrecognized_url(direct_url, cell_ref=cell_ref, idx=idx)
+            elif is_news_url(url):
+                # Просто логируем ссылку в parse error
+                cell_ref = f"{COLUMN}{i}"
+                log_unrecognized_url(url, cell_ref=cell_ref, idx=idx)
             else:
                 print(f"[?] Неизвестный тип ссылки: {url}")
                 cell_ref = f"{COLUMN}{i}"
@@ -276,4 +338,22 @@ for i, cell in enumerate(data, 1):
             processed_links += 1
             print_progress_bar(processed_links, total_links)
 
+def collect_all_parse_errors():
+    import glob
+    now = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    error_dir = os.path.join(MEDIA_DIR, 'parse_error')
+    all_files = glob.glob(os.path.join(error_dir, 'parse_error_*.txt'))
+    if not all_files:
+        print('Нет файлов parse_error для объединения.')
+        return
+    out_path = os.path.join(error_dir, f'all_parse_errors_{now}.txt')
+    with open(out_path, 'w', encoding='utf-8') as outfile:
+        for fname in all_files:
+            with open(fname, 'r', encoding='utf-8') as infile:
+                outfile.write(f'--- {os.path.basename(fname)} ---\n')
+                outfile.write(infile.read())
+                outfile.write('\n')
+    print(f'Все parse_error собраны в {out_path}')
+
 print("Готово!")
+collect_all_parse_errors()

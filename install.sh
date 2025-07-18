@@ -54,6 +54,23 @@ else
     echo "chromedriver уже установлен."
 fi
 
+# Установка ffmpeg (через Homebrew)
+if ! command -v ffmpeg &> /dev/null; then
+    echo "Устанавливаю ffmpeg..."
+    brew install ffmpeg
+else
+    echo "ffmpeg уже установлен."
+fi
+
+# Установка или обновление yt-dlp
+if ! command -v yt-dlp &> /dev/null; then
+    echo "Устанавливаю yt-dlp..."
+    pip3 install yt-dlp
+else
+    echo "Обновляю yt-dlp..."
+    pip3 install -U yt-dlp
+fi
+
 # Установка необходимых Python-библиотек
 REQUIRED_PYTHON_PACKAGES=(gspread google-auth-oauthlib google-auth selenium webdriver-manager yt-dlp requests beautifulsoup4)
 for pkg in "${REQUIRED_PYTHON_PACKAGES[@]}"; do
@@ -65,6 +82,6 @@ for pkg in "${REQUIRED_PYTHON_PACKAGES[@]}"; do
     fi
 done
 
-pip install python-dotenv
+pip3 install python-dotenv
 
 echo "\nВсе необходимые зависимости установлены!" 
