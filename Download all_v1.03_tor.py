@@ -21,6 +21,37 @@ import base64
 from dotenv import load_dotenv
 import datetime
 
+def extract_spreadsheet_id_from_url():
+    """
+    Запрашивает у пользователя ссылку на Google таблицу и извлекает из неё SPREADSHEET_ID
+    """
+    while True:
+        print("\n=== ВВОД ССЫЛКИ НА GOOGLE ТАБЛИЦУ ===")
+        print("Скопируйте ссылку на Google таблицу из браузера.")
+        print("Примеры ссылок:")
+        print("- https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit")
+        print("- https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit#gid=0")
+        
+        url = input("\nВведите ссылку на Google таблицу: ").strip()
+        
+        if not url:
+            print("Ошибка: ссылка не может быть пустой. Попробуйте снова.")
+            continue
+            
+        # Извлекаем SPREADSHEET_ID из ссылки
+        # Паттерн для поиска ID в ссылке Google Sheets
+        pattern = r'/spreadsheets/d/([a-zA-Z0-9-_]+)'
+        match = re.search(pattern, url)
+        
+        if match:
+            spreadsheet_id = match.group(1)
+            print(f"✓ SPREADSHEET_ID успешно извлечен: {spreadsheet_id}")
+            return spreadsheet_id
+        else:
+            print("Ошибка: не удалось извлечь SPREADSHEET_ID из ссылки.")
+            print("Убедитесь, что ссылка корректная и содержит ID таблицы.")
+            print("Попробуйте снова.")
+
 def get_column_from_user():
     while True:
         col = input('Введите латинскую заглавную букву колонки таблицы (например, B): ').strip().upper()
@@ -29,7 +60,7 @@ def get_column_from_user():
         print('Ошибка: введите одну латинскую заглавную букву (A-Z).')
 
 # === НАСТРОЙКИ ===
-SPREADSHEET_ID = '105j4aHH6tKW3iJkRCBRS586KLu4ROXqVJuLlU-gpZkk'
+SPREADSHEET_ID = extract_spreadsheet_id_from_url()
 # CREDENTIALS_FILE = '/Users/theseus/ASSETS/data_files/2.json'  # больше не нужен
 SHEET_NAME = 'Лист1'
 COLUMN = get_column_from_user()
