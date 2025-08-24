@@ -40,10 +40,10 @@ def extract_spreadsheet_id_from_url():
 
 def get_column_from_user():
     while True:
-        col = input('Введите латинскую заглавную букву колонки таблицы (например, B): ').strip().upper()
+        col = input('Введите латинскую заголовную букву колонки таблицы (например, B): ').strip().upper()
         if len(col) == 1 and 'A' <= col <= 'Z':
             return col
-        print('Ошибка: введите одну латинскую заглавную букву (A-Z).')
+        print('Ошибка: введите одну латинскую заголовную букву (A-Z).')
 
 def get_project_name():
     while True:
@@ -53,33 +53,16 @@ def get_project_name():
         print('Ошибка: название проекта не может быть пустым.')
 
 def is_youtube_url(url):
+    """Проверяет, является ли ссылка YouTube ссылкой"""
     return 'youtube.com' in url or 'youtu.be' in url
 
-def is_video_url(url):
-    video_domains = [
-        'youtube.com', 'youtu.be', 'vimeo.com', 'vk.com/video', 'rutube.ru', 'dailymotion.com',
-        'tiktok.com', 'facebook.com', 'bilibili.com', 'ok.ru', 'dzen.ru', 'instagram.com'
-    ]
-    for domain in video_domains:
-        if domain in url:
-            return True
-    
-    # Проверяем домены Яндекс.Видео
-    if 'yandex.ru/video' in url:
-        return True
-    
-    # Проверяем расширения видео файлов
-    video_exts = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.m4v', '.3gp']
-    if any(url.lower().split('?')[0].endswith(ext) for ext in video_exts):
-        return True
-    
-    return False
-
 def is_image_url(url):
+    """Проверяет, является ли ссылка ссылкой на изображение"""
     # Проверяем домены изображений
     image_domains = [
         'images.app.goo.gl', 'avatars.mds.yandex.net', 'avatars.dzeninfra.ru',
-        'cdn.i.haymarketmedia.asia', 'images.steamusercontent.com', 'play-lh.googleusercontent.com'
+        'cdn.i.haymarketmedia.asia', 'images.steamusercontent.com', 'play-lh.googleusercontent.com',
+        'share.google'
     ]
     for domain in image_domains:
         if domain in url:
@@ -95,6 +78,27 @@ def is_image_url(url):
     for param in image_params:
         if param in url:
             return True
+    
+    return False
+
+def is_video_url(url):
+    """Проверяет, является ли ссылка ссылкой на видео (кроме YouTube)"""
+    video_domains = [
+        'vimeo.com', 'vk.com/video', 'rutube.ru', 'dailymotion.com',
+        'tiktok.com', 'facebook.com', 'bilibili.com', 'ok.ru', 'dzen.ru', 'instagram.com'
+    ]
+    for domain in video_domains:
+        if domain in url:
+            return True
+    
+    # Проверяем домены Яндекс.Видео
+    if 'yandex.ru/video' in url:
+        return True
+    
+    # Проверяем расширения видео файлов
+    video_exts = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.flv', '.m4v', '.3gp']
+    if any(url.lower().split('?')[0].endswith(ext) for ext in video_exts):
+        return True
     
     return False
 
@@ -116,113 +120,35 @@ def check_content_type_by_headers(url):
             # Проверяем видео
             if any(video_type in content_type for video_type in ['video/', 'video/mp4', 'video/webm', 'video/avi']):
                 return 'video'
-            
-            # Проверяем HTML (новостные статьи)
-            if 'text/html' in content_type:
-                return 'news'
         
         return None
     except Exception as e:
         print(f"Ошибка при проверке заголовков для {url}: {e}")
         return None
 
-def is_news_url(url):
-    news_domains = [
-        'starhit.ru', 'rbc.ru', 'rambler.ru'
-    ]
-    return any(domain in url for domain in news_domains)
-
-def sanitize_filename(url, row_num, idx, column=None):
-    cell_ref = f"{column}{row_num}" if column else str(row_num)
-    return f"{cell_ref}_{idx}"
-
 def categorize_url(url):
     """Категоризирует URL по типу контента"""
-    # Сначала проверяем по URL паттернам
-    if is_video_url(url):
-        return 'video'
+    # Сначала проверяем YouTube
+    if is_youtube_url(url):
+        return 'youtube'
+    # Затем проверяем изображения
     elif is_image_url(url):
         return 'image'
+    # Затем проверяем видео (кроме YouTube)
+    elif is_video_url(url):
+        return 'video'
     else:
         # Если не удалось определить по URL, проверяем по HTTP заголовкам
         content_type = check_content_type_by_headers(url)
         if content_type:
             return content_type
         else:
-            # Если и заголовки не помогли, проверяем, является ли это HTML страницей
-            try:
-                headers = {
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                }
-                response = requests.head(url, headers=headers, timeout=10, allow_redirects=True)
-                if response.status_code == 200:
-                    content_type = response.headers.get('content-type', '').lower()
-                    if 'text/html' in content_type:
-                        return 'news'
-            except:
-                pass
-            # Если ничего не подошло, считаем новостной статьей
-            return 'news'
+            # Если ничего не подошло, считаем остальными ссылками
+            return 'other'
 
-def categorize_url_with_errors(url, cell_ref=None, idx=None, parse_errors_file_path=None):
-    """Категоризирует URL и логирует нераспознанные ссылки"""
-    category = categorize_url(url)
-    
-    # Если ссылка не попала ни в одну категорию, логируем её
-    if category == 'news' and not is_news_url(url):
-        # Проверяем, действительно ли это новостная статья
-        if parse_errors_file_path:
-            log_parse_error(url, cell_ref, idx, parse_errors_file_path)
-        return 'news'  # Все равно возвращаем как новость
-    
-    return category
-
-def log_unrecognized_url(url, cell_ref=None, idx=None, error_file_path=None):
-    """Логирует нераспознанные ссылки в файл ошибок"""
-    if error_file_path:
-        with open(error_file_path, 'a', encoding='utf-8') as f:
-            if cell_ref and idx is not None:
-                f.write(f"{cell_ref} [{idx}]: {url}\n")
-            elif cell_ref:
-                f.write(f"{cell_ref}: {url}\n")
-            else:
-                f.write(url + '\n')
-
-def log_parse_error(url, cell_ref=None, idx=None, error_file_path=None):
-    """Логирует ссылки, которые не удалось распознать ни в одну категорию"""
-    if error_file_path:
-        with open(error_file_path, 'a', encoding='utf-8') as f:
-            if cell_ref and idx is not None:
-                f.write(f"{cell_ref} [{idx}]: {url}\n")
-            elif cell_ref:
-                f.write(f"{cell_ref}: {url}\n")
-            else:
-                f.write(url + '\n')
-
-def main():
-    print("=== СКРИПТ ПАРСИНГА ССЫЛОК ИЗ GOOGLE ТАБЛИЦЫ ===")
-    
-    # Запрашиваем название проекта
-    project_name = get_project_name()
-    
-    # Запрашиваем ссылку на таблицу
-    spreadsheet_id = extract_spreadsheet_id_from_url()
-    
-    # Запрашиваем колонку
-    column = get_column_from_user()
-    
-    # Создаем структуру директорий
-    downloads_dir = os.path.expanduser('~/Downloads')
-    download_all_dir = os.path.join(downloads_dir, 'download_all')
-    project_dir = os.path.join(download_all_dir, project_name)
-    parse_links_dir = os.path.join(project_dir, '1_parse_links')
-    
-    # Создаем директории
-    os.makedirs(parse_links_dir, exist_ok=True)
-    
-    # Создаем файл для ошибок
-    error_file_path = os.path.join(parse_links_dir, 'parse_links_errors.txt')
-    parse_errors_file_path = os.path.join(parse_links_dir, 'parse_errors.txt')
+def collect_all_links_from_spreadsheet(spreadsheet_id, column, parse_links_dir):
+    """Собирает все ссылки из Google таблицы и сохраняет в all_links.txt"""
+    print(f"\n=== СБОР ВСЕХ ССЫЛОК ИЗ КОЛОНКИ {column} ===")
     
     # Загружаем переменные окружения
     load_dotenv()
@@ -252,59 +178,125 @@ def main():
     worksheet = sh.worksheet('Лист1')
     data = worksheet.col_values(ord(column.upper()) - ord('A') + 1)
     
-    # Словари для группировки ссылок
-    categorized_links = {
-        'image': [],
-        'video': [],
-        'news': []
-    }
-    
-    print(f"\n=== ПАРСИНГ ССЫЛОК ИЗ КОЛОНКИ {column} ===")
+    all_links = []
     
     # Обрабатываем каждую ячейку
     for i, cell in enumerate(data, 1):
         if cell.strip():
             links = re.findall(r'https?://[^\s,;"\'<>]+', cell)
             for idx, url in enumerate(links, 1):
-                category = categorize_url_with_errors(url, f"{column}{i}", idx, parse_errors_file_path)
-                # Создаем имя файла в том же стиле, что и в download_all
-                filename = sanitize_filename(url, i, idx, column=column)
-                categorized_links[category].append({
+                link_info = {
                     'url': url,
-                    'filename': filename,
                     'cell_ref': f"{column}{i}",
-                    'index': idx
-                })
-                print(f"[{category.upper()}] {filename}: {url}")
+                    'link_number': idx,
+                    'display_name': f"{column}{i} {idx}"
+                }
+                all_links.append(link_info)
+                print(f"[{link_info['display_name']}] {url}")
     
-    # Сохраняем результаты в файлы
+    # Сохраняем все ссылки в файл
+    all_links_file = os.path.join(parse_links_dir, 'all_links.txt')
+    with open(all_links_file, 'w', encoding='utf-8') as f:
+        f.write(f"# Все ссылки из колонки {column}\n")
+        f.write(f"# Дата создания: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        f.write(f"# Всего ссылок: {len(all_links)}\n\n")
+        
+        for link_info in all_links:
+            f.write(f"{link_info['display_name']} : {link_info['url']}\n")
+    
+    print(f"\n✓ Сохранено {len(all_links)} ссылок в файл: all_links.txt")
+    return all_links
+
+def categorize_links_from_file(all_links, parse_links_dir):
+    """Категоризирует ссылки из файла all_links.txt по типам"""
+    print(f"\n=== КАТЕГОРИЗАЦИЯ ССЫЛОК ===")
+    
+    # Словари для группировки ссылок
+    categorized_links = {
+        'image': [],
+        'youtube': [],
+        'video': [],
+        'other': []
+    }
+    
+    # Читаем ссылки из файла и категоризируем
+    all_links_file = os.path.join(parse_links_dir, 'all_links.txt')
+    with open(all_links_file, 'r', encoding='utf-8') as f:
+        lines = f.readlines()
+    
+    # Пропускаем заголовки (строки, начинающиеся с #)
+    for line in lines:
+        if line.startswith('#') or not line.strip():
+            continue
+        
+        # Парсим строку формата "A1 1 : https://example.com"
+        parts = line.strip().split(' : ', 1)
+        if len(parts) == 2:
+            display_name = parts[0].strip()
+            url = parts[1].strip()
+            
+            category = categorize_url(url)
+            categorized_links[category].append({
+                'display_name': display_name,
+                'url': url
+            })
+            print(f"[{category.upper()}] {display_name}: {url}")
+    
+    # Сохраняем результаты в отдельные файлы
     timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
     
     for category, links in categorized_links.items():
         if links:
-            filename = f"{category}_links_{timestamp}.txt"
+            filename = f"{category}_links.txt"
             filepath = os.path.join(parse_links_dir, filename)
             
             with open(filepath, 'w', encoding='utf-8') as f:
                 f.write(f"# Ссылки категории: {category}\n")
                 f.write(f"# Дата создания: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"# Колонка: {column}\n")
                 f.write(f"# Всего ссылок: {len(links)}\n\n")
                 
                 for link_info in links:
-                    f.write(f"{link_info['filename']} {link_info['url']}\n")
+                    f.write(f"{link_info['display_name']} : {link_info['url']}\n")
             
             print(f"\n✓ Сохранено {len(links)} ссылок категории '{category}' в файл: {filename}")
     
+    return categorized_links
 
+def main():
+    print("=== СКРИПТ ПАРСИНГА ССЫЛОК ИЗ GOOGLE ТАБЛИЦЫ ===")
+    
+    # Запрашиваем название проекта
+    project_name = get_project_name()
+    
+    # Запрашиваем ссылку на таблицу
+    spreadsheet_id = extract_spreadsheet_id_from_url()
+    
+    # Запрашиваем колонку
+    column = get_column_from_user()
+    
+    # Создаем структуру директорий
+    downloads_dir = os.path.expanduser('~/Downloads')
+    download_all_dir = os.path.join(downloads_dir, 'download_all')
+    project_dir = os.path.join(download_all_dir, project_name)
+    parse_links_dir = os.path.join(project_dir, '1_parse_links')
+    
+    # Создаем директории
+    os.makedirs(parse_links_dir, exist_ok=True)
+    
+    # Этап 1: Сбор всех ссылок из Google таблицы
+    all_links = collect_all_links_from_spreadsheet(spreadsheet_id, column, parse_links_dir)
+    
+    # Этап 2: Категоризация ссылок из файла
+    categorized_links = categorize_links_from_file(all_links, parse_links_dir)
     
     print(f"\n=== РЕЗУЛЬТАТЫ ===")
     print(f"Проект: {project_name}")
     print(f"Директория: {parse_links_dir}")
     print(f"Изображения: {len(categorized_links['image'])} ссылок")
-    print(f"Видео: {len(categorized_links['video'])} ссылок")
-    print(f"Новости: {len(categorized_links['news'])} ссылок")
-    total_links = len(categorized_links['image']) + len(categorized_links['video']) + len(categorized_links['news'])
+    print(f"YouTube: {len(categorized_links['youtube'])} ссылок")
+    print(f"Видео (другие): {len(categorized_links['video'])} ссылок")
+    print(f"Остальные: {len(categorized_links['other'])} ссылок")
+    total_links = sum(len(links) for links in categorized_links.values())
     print(f"Всего: {total_links} ссылок")
 
 if __name__ == "__main__":
