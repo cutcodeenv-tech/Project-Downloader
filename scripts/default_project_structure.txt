@@ -1,0 +1,23 @@
+# Структура папок для проекта osnovateli_doc
+# Каждая строка - название папки для создания
+# Строки, начинающиеся с # - комментарии
+
+chapters
+integrations
+mogrt
+output
+photo_placeholder
+pictures
+screenshots
+screenshots_placeholder
+stock
+temp
+typewriter_placeholder
+video
+voiceover
+xml_placeholders
+database
+smart_cropped_pictures
+manual_addons
+backup
+edit

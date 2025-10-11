@@ -5,8 +5,50 @@ import re
 import urllib.parse
 import json
 import requests
+import csv
 from datetime import datetime
 from dotenv import load_dotenv
+
+def resolve_worksheet(sh):
+    """Возвращает рабочий лист, устойчиво к различным названиям листов.
+    Порядок выбора:
+    1) Попытка по популярным названиям ('Лист1', 'Sheet1', 'Sheet', 'Лист')
+    2) Первый лист в таблице
+    3) Интерактивный выбор пользователя из доступных названий
+    """
+    preferred_titles = ['\u041b\u0438\u0441\u04421', 'Sheet1', 'Sheet', '\u041b\u0438\u0441\u0442']
+    for title in preferred_titles:
+        try:
+            return sh.worksheet(title)
+        except gspread.exceptions.WorksheetNotFound:
+            pass
+
+    # Пытаемся взять первый лист
+    try:
+        return sh.sheet1
+    except Exception:
+        pass
+
+    # Если ничего не нашли, предлагаем пользователю выбрать из списка
+    try:
+        worksheets = sh.worksheets()
+        titles = [ws.title for ws in worksheets]
+        if titles:
+            print("Доступные листы: " + ", ".join(titles))
+            while True:
+                user_title = input("Введите название листа из списка выше: ").strip()
+                if not user_title:
+                    print("Название не может быть пустым. Попробуйте снова.")
+                    continue
+                try:
+                    return sh.worksheet(user_title)
+                except gspread.exceptions.WorksheetNotFound:
+                    print("Лист не найден. Проверьте раскладку/регистр и попробуйте снова.")
+    except Exception:
+        pass
+
+    # Финальный случай: явно сообщаем об ошибке
+    raise gspread.exceptions.WorksheetNotFound("Не удалось определить рабочий лист.")
 
 def extract_spreadsheet_id_from_url():
     """
@@ -18,6 +60,12 @@ def extract_spreadsheet_id_from_url():
         print("Примеры ссылок:")
         print("- https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit")
         print("- https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit#gid=0")
+        
+        # Показываем сервисный email для шаринга
+        print("\n⚠️  ВАЖНО: Убедитесь, что таблица расшарена на сервисный email!")
+        service_email = get_service_email()
+        print(f"📧 Сервисный email для шаринга: {service_email}")
+        print("   Дайте этому email доступ 'Читатель' к таблице")
         
         url = input("\nВведите ссылку на Google таблицу: ").strip()
         
@@ -38,12 +86,55 @@ def extract_spreadsheet_id_from_url():
             print("Убедитесь, что ссылка корректная и содержит ID таблицы.")
             print("Попробуйте снова.")
 
-def get_column_from_user():
-    while True:
-        col = input('Введите латинскую заголовную букву колонки таблицы (например, B): ').strip().upper()
-        if len(col) == 1 and 'A' <= col <= 'Z':
-            return col
-        print('Ошибка: введите одну латинскую заголовную букву (A-Z).')
+def get_service_email():
+    """Получает сервисный email из переменных окружения"""
+    load_dotenv()
+    service_email = os.getenv("CLIENT_EMAIL")
+    if not service_email:
+        print("⚠️  Предупреждение: CLIENT_EMAIL не найден в переменных окружения")
+        return "неизвестен"
+    return service_email
+
+def extract_links_from_csv_column_b(database_dir):
+    """Извлекает ссылки из колонки B сохраненного CSV файла"""
+    print(f"\n=== ПОИСК ССЫЛОК В КОЛОНКЕ B ===")
+    
+    input_gdoc_file = os.path.join(database_dir, 'input_gdoc.csv')
+    
+    if not os.path.exists(input_gdoc_file):
+        print(f"Ошибка: файл {input_gdoc_file} не найден")
+        return []
+    
+    all_links = []
+    
+    try:
+        with open(input_gdoc_file, 'r', encoding='utf-8') as csvfile:
+            reader = csv.reader(csvfile)
+            rows = list(reader)
+            
+            # Обрабатываем каждую строку (колонка B = индекс 1)
+            for row_num, row in enumerate(rows, 1):
+                if len(row) > 1 and row[1].strip():  # Проверяем, что есть колонка B
+                    cell_content = row[1].strip()
+                    links = re.findall(r'https?://[^\s,;"\'<>]+', cell_content)
+                    
+                    for idx, url in enumerate(links, 1):
+                        link_info = {
+                            'source_address': f"B{row_num}_{idx}",
+                            'url': url,
+                            'cell_ref': f"B{row_num}",
+                            'link_number': idx,
+                            'display_name': f"B{row_num}_{idx}"
+                        }
+                        all_links.append(link_info)
+                        print(f"[{link_info['display_name']}] {url}")
+        
+        print(f"\n✓ Найдено {len(all_links)} ссылок в колонке B")
+        return all_links
+        
+    except Exception as e:
+        print(f"Ошибка при чтении CSV файла: {e}")
+        return []
 
 def get_project_name():
     while True:
@@ -146,9 +237,9 @@ def categorize_url(url):
             # Если ничего не подошло, считаем остальными ссылками
             return 'other'
 
-def collect_all_links_from_spreadsheet(spreadsheet_id, column, parse_links_dir):
-    """Собирает все ссылки из Google таблицы и сохраняет в all_links.txt"""
-    print(f"\n=== СБОР ВСЕХ ССЫЛОК ИЗ КОЛОНКИ {column} ===")
+def save_table_structure_to_csv(spreadsheet_id, database_dir):
+    """Сохраняет полную структуру таблицы в input_gdoc.csv"""
+    print(f"\n=== СОХРАНЕНИЕ СТРУКТУРЫ ТАБЛИЦЫ ===")
     
     # Загружаем переменные окружения
     load_dotenv()
@@ -175,40 +266,40 @@ def collect_all_links_from_spreadsheet(spreadsheet_id, column, parse_links_dir):
     
     # Чтение таблицы
     sh = gc.open_by_key(spreadsheet_id)
-    worksheet = sh.worksheet('Лист1')
-    data = worksheet.col_values(ord(column.upper()) - ord('A') + 1)
+    worksheet = resolve_worksheet(sh)
     
-    all_links = []
+    # Получаем все данные из таблицы
+    all_values = worksheet.get_all_values()
     
-    # Обрабатываем каждую ячейку
-    for i, cell in enumerate(data, 1):
-        if cell.strip():
-            links = re.findall(r'https?://[^\s,;"\'<>]+', cell)
-            for idx, url in enumerate(links, 1):
-                link_info = {
-                    'url': url,
-                    'cell_ref': f"{column}{i}",
-                    'link_number': idx,
-                    'display_name': f"{column}{i} {idx}"
-                }
-                all_links.append(link_info)
-                print(f"[{link_info['display_name']}] {url}")
+    # Сохраняем в CSV
+    input_gdoc_file = os.path.join(database_dir, 'input_gdoc.csv')
+    with open(input_gdoc_file, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        for row in all_values:
+            writer.writerow(row)
     
-    # Сохраняем все ссылки в файл
-    all_links_file = os.path.join(parse_links_dir, 'all_links.txt')
-    with open(all_links_file, 'w', encoding='utf-8') as f:
-        f.write(f"# Все ссылки из колонки {column}\n")
-        f.write(f"# Дата создания: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write(f"# Всего ссылок: {len(all_links)}\n\n")
-        
-        for link_info in all_links:
-            f.write(f"{link_info['display_name']} : {link_info['url']}\n")
-    
-    print(f"\n✓ Сохранено {len(all_links)} ссылок в файл: all_links.txt")
-    return all_links
+    print(f"✓ Структура таблицы сохранена в: input_gdoc.csv")
+    print(f"✓ Строк в таблице: {len(all_values)}")
+    return all_values
 
-def categorize_links_from_file(all_links, parse_links_dir):
-    """Категоризирует ссылки из файла all_links.txt по типам"""
+def save_links_to_csv(all_links, database_dir, project_name):
+    """Сохраняет найденные ссылки в CSV файл"""
+    if not all_links:
+        print("Нет ссылок для сохранения")
+        return
+    
+    # Сохраняем все ссылки в CSV
+    all_links_file = os.path.join(database_dir, f'osnovateli_doc_{project_name}_all_links.csv')
+    with open(all_links_file, 'w', newline='', encoding='utf-8') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['source_address', 'url'])  # Заголовки
+        for link_info in all_links:
+            writer.writerow([link_info['source_address'], link_info['url']])
+    
+    print(f"\n✓ Сохранено {len(all_links)} ссылок в файл: osnovateli_doc_{project_name}_all_links.csv")
+
+def categorize_links_from_csv(all_links, database_dir, project_name):
+    """Категоризирует ссылки из CSV файла по типам и сохраняет в отдельные CSV"""
     print(f"\n=== КАТЕГОРИЗАЦИЯ ССЫЛОК ===")
     
     # Словари для группировки ссылок
@@ -219,44 +310,26 @@ def categorize_links_from_file(all_links, parse_links_dir):
         'other': []
     }
     
-    # Читаем ссылки из файла и категоризируем
-    all_links_file = os.path.join(parse_links_dir, 'all_links.txt')
-    with open(all_links_file, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+    # Категоризируем ссылки
+    for link_info in all_links:
+        category = categorize_url(link_info['url'])
+        categorized_links[category].append({
+            'source_address': link_info['source_address'],
+            'url': link_info['url']
+        })
+        print(f"[{category.upper()}] {link_info['source_address']}: {link_info['url']}")
     
-    # Пропускаем заголовки (строки, начинающиеся с #)
-    for line in lines:
-        if line.startswith('#') or not line.strip():
-            continue
-        
-        # Парсим строку формата "A1 1 : https://example.com"
-        parts = line.strip().split(' : ', 1)
-        if len(parts) == 2:
-            display_name = parts[0].strip()
-            url = parts[1].strip()
-            
-            category = categorize_url(url)
-            categorized_links[category].append({
-                'display_name': display_name,
-                'url': url
-            })
-            print(f"[{category.upper()}] {display_name}: {url}")
-    
-    # Сохраняем результаты в отдельные файлы
-    timestamp = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-    
+    # Сохраняем результаты в отдельные CSV файлы
     for category, links in categorized_links.items():
         if links:
-            filename = f"{category}_links.txt"
-            filepath = os.path.join(parse_links_dir, filename)
+            filename = f"osnovateli_doc_{project_name}_{category}_links.csv"
+            filepath = os.path.join(database_dir, filename)
             
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(f"# Ссылки категории: {category}\n")
-                f.write(f"# Дата создания: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-                f.write(f"# Всего ссылок: {len(links)}\n\n")
-                
+            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['source_address', 'url'])  # Заголовки
                 for link_info in links:
-                    f.write(f"{link_info['display_name']} : {link_info['url']}\n")
+                    writer.writerow([link_info['source_address'], link_info['url']])
             
             print(f"\n✓ Сохранено {len(links)} ссылок категории '{category}' в файл: {filename}")
     
@@ -265,39 +338,57 @@ def categorize_links_from_file(all_links, parse_links_dir):
 def main():
     print("=== СКРИПТ ПАРСИНГА ССЫЛОК ИЗ GOOGLE ТАБЛИЦЫ ===")
     
+    # Показываем сервисный email в начале
+    print("\n📧 ИНФОРМАЦИЯ О ДОСТУПЕ К ТАБЛИЦЕ:")
+    service_email = get_service_email()
+    print(f"   Сервисный email: {service_email}")
+    print("   Убедитесь, что Google таблица расшарена на этот email с правами 'Читатель'")
+    print("   Если таблица не расшарена, скрипт не сможет получить к ней доступ")
+    
     # Запрашиваем название проекта
     project_name = get_project_name()
     
     # Запрашиваем ссылку на таблицу
     spreadsheet_id = extract_spreadsheet_id_from_url()
     
-    # Запрашиваем колонку
-    column = get_column_from_user()
-    
-    # Создаем структуру директорий
-    downloads_dir = os.path.expanduser('~/Downloads')
-    download_all_dir = os.path.join(downloads_dir, 'download_all')
-    project_dir = os.path.join(download_all_dir, project_name)
-    parse_links_dir = os.path.join(project_dir, '1_parse_links')
+    # Создаем структуру директорий в data/
+    data_dir = '/Users/theseus/Projects/osnovateli_doc_framework/data'
+    project_dir = os.path.join(data_dir, project_name)
+    database_dir = os.path.join(project_dir, 'database')
     
     # Создаем директории
-    os.makedirs(parse_links_dir, exist_ok=True)
+    os.makedirs(database_dir, exist_ok=True)
+    print(f"✓ Рабочая директория: {database_dir}")
     
-    # Этап 1: Сбор всех ссылок из Google таблицы
-    all_links = collect_all_links_from_spreadsheet(spreadsheet_id, column, parse_links_dir)
+    # Этап 1: Сохранение структуры таблицы
+    table_structure = save_table_structure_to_csv(spreadsheet_id, database_dir)
     
-    # Этап 2: Категоризация ссылок из файла
-    categorized_links = categorize_links_from_file(all_links, parse_links_dir)
+    # Этап 2: Автоматический поиск ссылок в колонке B
+    all_links = extract_links_from_csv_column_b(database_dir)
+    
+    # Этап 3: Сохранение всех ссылок в CSV
+    save_links_to_csv(all_links, database_dir, project_name)
+    
+    # Этап 4: Категоризация ссылок
+    categorized_links = categorize_links_from_csv(all_links, database_dir, project_name)
     
     print(f"\n=== РЕЗУЛЬТАТЫ ===")
     print(f"Проект: {project_name}")
-    print(f"Директория: {parse_links_dir}")
+    print(f"Директория: {database_dir}")
     print(f"Изображения: {len(categorized_links['image'])} ссылок")
     print(f"YouTube: {len(categorized_links['youtube'])} ссылок")
     print(f"Видео (другие): {len(categorized_links['video'])} ссылок")
     print(f"Остальные: {len(categorized_links['other'])} ссылок")
     total_links = sum(len(links) for links in categorized_links.values())
     print(f"Всего: {total_links} ссылок")
+    
+    print(f"\n=== СОЗДАННЫЕ ФАЙЛЫ ===")
+    print(f"✓ input_gdoc.csv - полная структура таблицы")
+    print(f"✓ osnovateli_doc_{project_name}_all_links.csv - все ссылки")
+    print(f"✓ osnovateli_doc_{project_name}_image_links.csv - ссылки на изображения")
+    print(f"✓ osnovateli_doc_{project_name}_youtube_links.csv - YouTube ссылки")
+    print(f"✓ osnovateli_doc_{project_name}_video_links.csv - другие видео")
+    print(f"✓ osnovateli_doc_{project_name}_other_links.csv - остальные ссылки")
 
 if __name__ == "__main__":
     main()

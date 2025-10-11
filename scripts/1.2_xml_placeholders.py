@@ -1,41 +1,56 @@
-import gspread
-from google.oauth2.service_account import Credentials
 import os
 import re
+import csv
 from datetime import datetime
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 
-def extract_spreadsheet_id_from_url():
+def read_csv_data(project_name):
     """
-    Запрашивает у пользователя ссылку на Google таблицу и извлекает из неё SPREADSHEET_ID
+    Читает данные из input_gdoc.csv файла проекта
     """
-    while True:
-        print("\n=== ВВОД ССЫЛКИ НА GOOGLE ТАБЛИЦУ ===")
-        print("Скопируйте ссылку на Google таблицу из браузера.")
-        print("Примеры ссылок:")
-        print("- https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit")
-        print("- https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit#gid=0")
-        
-        url = input("\nВведите ссылку на Google таблицу: ").strip()
-        
-        if not url:
-            print("Ошибка: ссылка не может быть пустой. Попробуйте снова.")
-            continue
+    print(f"\n=== ЧТЕНИЕ ДАННЫХ ИЗ CSV ФАЙЛА ===")
+    
+    # Путь к CSV файлу
+    data_dir = '/Users/theseus/Projects/osnovateli_doc_framework/data'
+    project_dir = os.path.join(data_dir, project_name)
+    database_dir = os.path.join(project_dir, 'database')
+    csv_file = os.path.join(database_dir, 'input_gdoc.csv')
+    
+    if not os.path.exists(csv_file):
+        print(f"Ошибка: файл {csv_file} не найден.")
+        print("Сначала запустите скрипт 1_parse_links.py для создания CSV файла.")
+        return []
+    
+    rows_data = []
+    try:
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            csv_rows = list(reader)
             
-        # Извлекаем SPREADSHEET_ID из ссылки
-        pattern = r'/spreadsheets/d/([a-zA-Z0-9-_]+)'
-        match = re.search(pattern, url)
+            for i, row in enumerate(csv_rows, 1):
+                # Берем первые три колонки (A, B, C)
+                col_a = row[0] if len(row) > 0 else ""
+                col_b = row[1] if len(row) > 1 else ""
+                col_c = row[2] if len(row) > 2 else ""
+                
+                # Если хотя бы одна колонка содержит данные, добавляем строку
+                if col_a.strip() or col_b.strip() or col_c.strip():
+                    rows_data.append({
+                        'row_number': i,
+                        'col_a': col_a.strip(),
+                        'col_b': col_b.strip(),
+                        'col_c': col_c.strip()
+                    })
+                    print(f"Строка {i}: A='{col_a[:50]}...' B='{col_b[:50]}...' C='{col_c[:50]}...'")
         
-        if match:
-            spreadsheet_id = match.group(1)
-            print(f"✓ SPREADSHEET_ID успешно извлечен: {spreadsheet_id}")
-            return spreadsheet_id
-        else:
-            print("Ошибка: не удалось извлечь SPREADSHEET_ID из ссылки.")
-            print("Убедитесь, что ссылка корректная и содержит ID таблицы.")
-            print("Попробуйте снова.")
+        print(f"\n✓ Прочитано {len(rows_data)} строк с данными из {csv_file}")
+        return rows_data
+        
+    except Exception as e:
+        print(f"Ошибка при чтении CSV файла: {e}")
+        return []
 
 def get_project_name():
     while True:
@@ -73,9 +88,23 @@ def calculate_font_size(text1, text2, text3):
     else:
         return 20  # Минимальный размер для очень длинного текста
 
-def create_text_image(text1, text2, text3, output_path):
+def remove_links_from_text(text):
     """
-    Создает изображение 1920x1080 с тремя абзацами текста
+    Удаляет ссылки из текста, оставляя только текст
+    """
+    if not text:
+        return text
+    
+    # Паттерн для поиска ссылок (http/https)
+    url_pattern = r'https?://[^\s]+'
+    # Удаляем ссылки
+    text_without_links = re.sub(url_pattern, '', text)
+    # Убираем лишние пробелы
+    return ' '.join(text_without_links.split())
+
+def create_text_image(text1, text2, text3, row_number, output_path):
+    """
+    Создает изображение 1920x1080 с тремя абзацами текста с подписями и номером строки
     """
     # Рассчитываем оптимальный размер шрифта
     font_size = calculate_font_size(text1, text2, text3)
@@ -85,23 +114,51 @@ def create_text_image(text1, text2, text3, output_path):
     image = Image.new('RGB', (width, height), color='white')
     draw = ImageDraw.Draw(image)
     
-    # Пытаемся загрузить шрифт, если не получается - используем стандартный
+    # Пытаемся загрузить шрифт из assets/font, если не получается - используем системные
     try:
-        # Попытка загрузить системный шрифт
-        font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", font_size)
+        # Попытка загрузить шрифт из проекта
+        project_font_path = "/Users/theseus/Projects/osnovateli_doc_framework/assets/font/theater.bold-condensed.ttf"
+        font = ImageFont.truetype(project_font_path, font_size)
+        label_font = ImageFont.truetype(project_font_path, font_size + 10)
+        index_font = ImageFont.truetype(project_font_path, font_size + 20)
+        print(f"✓ Используется шрифт проекта: theater.bold-condensed.ttf")
     except:
         try:
-            # Попытка загрузить другой системный шрифт
-            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+            # Попытка загрузить системный шрифт
+            font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", font_size)
+            label_font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", font_size + 10)
+            index_font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", font_size + 20)
+            print("✓ Используется системный шрифт: Arial")
         except:
-            # Используем стандартный шрифт
-            font = ImageFont.load_default()
+            try:
+                # Попытка загрузить другой системный шрифт
+                font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size)
+                label_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size + 10)
+                index_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", font_size + 20)
+                print("✓ Используется системный шрифт: Helvetica")
+            except:
+                # Используем стандартный шрифт
+                font = ImageFont.load_default()
+                label_font = ImageFont.load_default()
+                index_font = ImageFont.load_default()
+                print("✓ Используется стандартный шрифт")
     
     # Настройки текста
     text_color = (0, 0, 0)  # Черный цвет
+    label_color = (100, 100, 100)  # Серый цвет для подписей
+    index_color = (50, 50, 50)  # Темно-серый цвет для номера строки
     line_spacing = font_size * 1.2
     margin = 100
     max_width = width - 2 * margin
+    
+    # Рисуем номер строки в правом верхнем углу
+    index_text = f"#{row_number}"
+    bbox = draw.textbbox((0, 0), index_text, font=index_font)
+    index_width = bbox[2] - bbox[0]
+    index_x = width - margin - index_width
+    index_y = margin
+    
+    draw.text((index_x, index_y), index_text, fill=index_color, font=index_font)
     
     # Функция для обертывания текста
     def wrap_text(text, max_width):
@@ -111,88 +168,35 @@ def create_text_image(text1, text2, text3, output_path):
         chars_per_line = max_width // (font_size // 2)
         return textwrap.wrap(text, width=chars_per_line, break_long_words=False, break_on_hyphens=False)
     
-    # Обрабатываем каждый абзац
-    texts = [text1, text2, text3]
-    current_y = margin
+    # Обрабатываем каждый абзац с подписями
+    texts_and_labels = [
+        (text1, "voiceover"),
+        (remove_links_from_text(text2), "storyboard"),  # Удаляем ссылки из второй колонки
+        (text3, "mogrt")
+    ]
+    current_y = margin + font_size + 30  # Отступ от номера строки
     
-    for i, text in enumerate(texts):
+    for text, label in texts_and_labels:
         if text and text.strip():
+            # Рисуем подпись
+            draw.text((margin, current_y), label.upper(), fill=label_color, font=label_font)
+            current_y += line_spacing * 1.5
+            
             # Обертываем текст
             lines = wrap_text(text.strip(), max_width)
             
-            # Рисуем каждую строку
+            # Рисуем каждую строку (выравнивание по левому краю)
             for line in lines:
-                # Центрируем текст по горизонтали
-                bbox = draw.textbbox((0, 0), line, font=font)
-                text_width = bbox[2] - bbox[0]
-                x = (width - text_width) // 2
-                
-                draw.text((x, current_y), line, fill=text_color, font=font)
+                draw.text((margin, current_y), line, fill=text_color, font=font)
                 current_y += line_spacing
             
             # Добавляем отступ между абзацами
-            current_y += line_spacing * 0.5
+            current_y += line_spacing * 0.8
     
     # Сохраняем изображение
     image.save(output_path, 'JPEG', quality=95)
-    print(f"✓ Создано изображение: {output_path} (размер шрифта: {font_size})")
+    print(f"✓ Создано изображение: {output_path} (строка #{row_number}, размер шрифта: {font_size})")
 
-def read_table_data(spreadsheet_id):
-    """
-    Читает данные из Google таблицы
-    """
-    print(f"\n=== ЧТЕНИЕ ДАННЫХ ИЗ GOOGLE ТАБЛИЦЫ ===")
-    
-    # Загружаем переменные окружения
-    load_dotenv()
-    
-    # Настройки для Google Sheets API
-    scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-    service_account_info = {
-        "type": os.getenv("TYPE"),
-        "project_id": os.getenv("PROJECT_ID"),
-        "private_key_id": os.getenv("PRIVATE_KEY_ID"),
-        "private_key": os.getenv("PRIVATE_KEY").replace('\\n', '\n'),
-        "client_email": os.getenv("CLIENT_EMAIL"),
-        "client_id": os.getenv("CLIENT_ID"),
-        "auth_uri": os.getenv("AUTH_URI"),
-        "token_uri": os.getenv("TOKEN_URI"),
-        "auth_provider_x509_cert_url": os.getenv("AUTH_PROVIDER_X509_CERT_URL"),
-        "client_x509_cert_url": os.getenv("CLIENT_X509_CERT_URL"),
-        "universe_domain": os.getenv("UNIVERSE_DOMAIN"),
-    }
-    
-    # Авторизация
-    creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
-    gc = gspread.authorize(creds)
-    
-    # Чтение таблицы
-    sh = gc.open_by_key(spreadsheet_id)
-    worksheet = sh.worksheet('Лист1')
-    
-    # Получаем все данные из первых трех колонок
-    all_values = worksheet.get_all_values()
-    
-    # Извлекаем данные из первых трех колонок
-    rows_data = []
-    for i, row in enumerate(all_values, 1):
-        # Берем первые три колонки (A, B, C)
-        col_a = row[0] if len(row) > 0 else ""
-        col_b = row[1] if len(row) > 1 else ""
-        col_c = row[2] if len(row) > 2 else ""
-        
-        # Если хотя бы одна колонка содержит данные, добавляем строку
-        if col_a.strip() or col_b.strip() or col_c.strip():
-            rows_data.append({
-                'row_number': i,
-                'col_a': col_a.strip(),
-                'col_b': col_b.strip(),
-                'col_c': col_c.strip()
-            })
-            print(f"Строка {i}: A='{col_a[:50]}...' B='{col_b[:50]}...' C='{col_c[:50]}...'")
-    
-    print(f"\n✓ Прочитано {len(rows_data)} строк с данными")
-    return rows_data
 
 def create_images_from_data(rows_data, output_dir):
     """
@@ -216,35 +220,37 @@ def create_images_from_data(rows_data, output_dir):
         output_path = os.path.join(output_dir, filename)
         
         # Создаем изображение
-        create_text_image(col_a, col_b, col_c, output_path)
+        create_text_image(col_a, col_b, col_c, row_number, output_path)
         created_count += 1
     
     print(f"\n✓ Создано {created_count} изображений в директории: {output_dir}")
     return created_count
 
 def main():
-    print("=== СКРИПТ СОЗДАНИЯ ИЗОБРАЖЕНИЙ С ТЕКСТОМ ИЗ GOOGLE ТАБЛИЦЫ ===")
+    print("=== СКРИПТ СОЗДАНИЯ ИЗОБРАЖЕНИЙ С ТЕКСТОМ ИЗ CSV ФАЙЛА ===")
     
     # Запрашиваем название проекта
     project_name = get_project_name()
     
-    # Запрашиваем ссылку на таблицу
-    spreadsheet_id = extract_spreadsheet_id_from_url()
+    # Проверяем, что проект существует
+    data_dir = '/Users/theseus/Projects/osnovateli_doc_framework/data'
+    project_dir = os.path.join(data_dir, project_name)
+    if not os.path.exists(project_dir):
+        print(f"Ошибка: проект {project_name} не найден в {project_dir}")
+        print("Сначала запустите скрипт 0_structure.py для создания структуры проекта")
+        return
     
-    # Создаем структуру директорий
-    downloads_dir = os.path.expanduser('~/Downloads')
-    download_all_dir = os.path.join(downloads_dir, 'download_all')
-    project_dir = os.path.join(download_all_dir, project_name)
-    placeholders_dir = os.path.join(project_dir, '1.1_xml_placeholders')
+    # Создаем структуру директорий в проекте
+    placeholders_dir = os.path.join(project_dir, 'xml_placeholders')
     
     # Создаем директории
     os.makedirs(placeholders_dir, exist_ok=True)
     
-    # Читаем данные из таблицы
-    rows_data = read_table_data(spreadsheet_id)
+    # Читаем данные из CSV файла
+    rows_data = read_csv_data(project_name)
     
     if not rows_data:
-        print("Ошибка: в таблице не найдено данных для обработки.")
+        print("Ошибка: в CSV файле не найдено данных для обработки.")
         return
     
     # Создаем изображения

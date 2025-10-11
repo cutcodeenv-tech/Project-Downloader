@@ -3,3 +3,7 @@ selenium>=4.15.0
 webdriver-manager>=4.0.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
+opencv-contrib-python>=4.8.0
+numpy>=1.24.0
+pydub>=0.25.1
+# mediapipe>=0.10.5  # Опционально для улучшенной детекции (требуется Python 3.10+)

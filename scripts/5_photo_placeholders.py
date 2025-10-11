@@ -9,6 +9,14 @@ import sys
 from PIL import Image
 import glob
 
+def get_project_name():
+    """Запрашивает у пользователя название проекта"""
+    while True:
+        name = input('Введите название проекта: ').strip()
+        if name:
+            return name
+        print('Ошибка: название проекта не может быть пустым.')
+
 def check_ffmpeg():
     """Проверяет наличие ffmpeg в системе"""
     try:
@@ -39,29 +47,38 @@ def check_image_aspect_ratio(image_path):
         print(f"  ❌ Ошибка при проверке изображения: {e}")
         return False
 
-def create_video_placeholder(image_path, output_path, scratches_path, blend_mode):
-    """Создает MOV видео с наложением царапин из JPG изображения"""
+def create_video_placeholder(image_path, output_path, scratches_path, alpha_mask_path):
+    """Создает MOV видео с наложением белых царапин и альфа-маски из JPG изображения"""
     try:
-        # Команда ffmpeg для создания видео с наложением царапин
+        # Команда ffmpeg для создания видео с наложением царапин через маску
         cmd = [
             'ffmpeg',
             '-y',  # Перезаписать выходной файл
             '-loop', '1',  # Зациклить изображение
             '-i', image_path,  # Входное изображение
             '-i', scratches_path,  # Файл с царапинами
+            '-i', alpha_mask_path,  # Альфа-маска
             '-filter_complex', 
+            # Масштабируем и центрируем основное изображение
             f'[0:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[bg];'
-            f'[1:v]format=rgba,colorchannelmixer=aa=0.5[scratches_50];'
-            f'[bg][scratches_50]blend=all_mode={blend_mode}:all_opacity=1.0[final]',
+            # Инвертируем цвета царапин (черные становятся белыми) и удаляем белый фон
+            f'[1:v]negate,colorkey=white:0.1:0.0[scratches_transparent];'
+            # Композируем царапины поверх основного изображения
+            f'[bg][scratches_transparent]overlay=0:0[with_scratches];'
+            # Инвертируем альфа-маску (прозрачные области становятся непрозрачными)
+            f'[2:v]negate[inverted_alpha];'
+            # Применяем инвертированную альфа-маску к результату
+            f'[with_scratches][inverted_alpha]alphamerge[final]',
             '-map', '[final]',
-            '-c:v', 'libx264',  # Кодек H.264
-            '-pix_fmt', 'yuv420p',  # Пиксельный формат
+            '-c:v', 'prores_ks',  # Кодек ProRes 4444
+            '-profile:v', '4444',  # Профиль ProRes 4444 с альфа-каналом
+            '-pix_fmt', 'yuva444p10le',  # Пиксельный формат с альфа-каналом
             '-r', '25',  # Частота кадров
             '-t', '10',  # Длительность 10 секунд
             output_path
         ]
         
-        print(f"  🎬 Создаю видео: {os.path.basename(output_path)} (режим: {blend_mode})")
+        print(f"  🎬 Создаю видео: {os.path.basename(output_path)} (царапины + альфа-маска, ProRes 4444)")
         
         # Выполняем команду ffmpeg
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -80,14 +97,19 @@ def create_video_placeholder(image_path, output_path, scratches_path, blend_mode
 def main():
     print("=== СКРИПТ СОЗДАНИЯ PHOTO PLACEHOLDERS ===")
     
+    # Получаем название проекта
+    project_name = get_project_name()
+    
     # Проверяем наличие ffmpeg
     if not check_ffmpeg():
         return
     
     # Пути к директориям и файлам
-    input_dir = "/Users/theseus/Work/osnovateli_doc_bot/data/photo_16_9"
-    output_dir = "/Users/theseus/Work/osnovateli_doc_bot/data/photo_placeholder"
-    scratches_path = "/Users/theseus/Work/osnovateli_doc_bot/assets/scratches_add.mp4"
+    base_path = "/Users/theseus/Projects/osnovateli_doc_framework/data"
+    input_dir = os.path.join(base_path, project_name, "smart_cropped_pictures")
+    output_dir = os.path.join(base_path, project_name, "photo_placeholder")
+    scratches_path = "/Users/theseus/Projects/osnovateli_doc_framework/assets/scratches_add.mp4"
+    alpha_mask_path = "/Users/theseus/Projects/osnovateli_doc_framework/assets/alpha_mask.mp4"
     
     # Проверяем существование входной директории
     if not os.path.exists(input_dir):
@@ -97,6 +119,11 @@ def main():
     # Проверяем существование файла с царапинами
     if not os.path.exists(scratches_path):
         print(f"❌ Файл с царапинами не найден: {scratches_path}")
+        return
+    
+    # Проверяем существование файла альфа-маски
+    if not os.path.exists(alpha_mask_path):
+        print(f"❌ Файл альфа-маски не найден: {alpha_mask_path}")
         return
     
     # Создаем выходную директорию
@@ -110,11 +137,13 @@ def main():
         print(f"❌ JPG файлы не найдены в директории: {input_dir}")
         return
     
-    print(f"\nНайдено {len(jpg_files)} JPG файлов")
+    print(f"\nПроект: {project_name}")
+    print(f"Найдено {len(jpg_files)} JPG файлов")
     print(f"Входная директория: {input_dir}")
     print(f"Выходная директория: {output_dir}")
     print(f"Файл с царапинами: {scratches_path}")
-    print(f"Режим наложения: screen")
+    print(f"Альфа-маска: {alpha_mask_path}")
+    print(f"Формат вывода: ProRes 4444 с альфа-каналом")
     
     successful_videos = 0
     failed_videos = 0
@@ -132,8 +161,8 @@ def main():
         base_name = os.path.splitext(os.path.basename(image_path))[0]
         output_path = os.path.join(output_dir, f"{base_name}.mov")
         
-        # Создаем видео с режимом screen (лучше для светлых элементов)
-        if create_video_placeholder(image_path, output_path, scratches_path, 'screen'):
+        # Создаем видео с наложением белых царапин и альфа-маски
+        if create_video_placeholder(image_path, output_path, scratches_path, alpha_mask_path):
             successful_videos += 1
         else:
             failed_videos += 1
@@ -145,7 +174,7 @@ def main():
     
     if successful_videos > 0:
         print(f"\nГотовые видео сохранены в: {output_dir}")
-        print(f"Использован режим наложения: screen")
+        print(f"Формат: ProRes 4444 с альфа-каналом (царапины + альфа-маска)")
 
 if __name__ == "__main__":
     main()

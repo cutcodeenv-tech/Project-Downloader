@@ -232,36 +232,20 @@ def download_image(url, filename, download_dir):
             if not extension:
                 extension = get_file_extension_from_url(url)
             
-            # Создаем временное имя файла с оригинальным расширением
-            temp_filename = filename + extension
-            temp_filepath = os.path.join(download_dir, temp_filename)
+            # Используем имя файла из CSV как есть, без добавления индексов
+            final_filepath = os.path.join(download_dir, f"{filename}.jpg")
+            temp_filepath = os.path.join(download_dir, f"{filename}{extension}")
             
-            # Проверяем, не существует ли уже файл с таким именем
-            counter = 1
-            original_temp_filepath = temp_filepath
-            while os.path.exists(temp_filepath):
-                name_without_ext = os.path.splitext(original_temp_filepath)[0]
-                ext = os.path.splitext(original_temp_filepath)[1]
-                temp_filepath = f"{name_without_ext}_{counter}{ext}"
-                counter += 1
+            # Если файл уже существует, пропускаем его
+            if os.path.exists(final_filepath):
+                print(f"  ⚠️  Файл {filename}.jpg уже существует, пропускаю")
+                return True
             
             # Сохраняем временный файл
             with open(temp_filepath, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         f.write(chunk)
-            
-            # Создаем финальное имя файла в JPG
-            final_filename = filename + '.jpg'
-            final_filepath = os.path.join(download_dir, final_filename)
-            
-            # Проверяем, не существует ли уже JPG файл с таким именем
-            counter = 1
-            original_final_filepath = final_filepath
-            while os.path.exists(final_filepath):
-                name_without_ext = os.path.splitext(original_final_filepath)[0]
-                final_filepath = f"{name_without_ext}_{counter}.jpg"
-                counter += 1
             
             # Конвертируем в JPG
             if extension.lower() == '.jpg':
@@ -294,35 +278,43 @@ def download_image(url, filename, download_dir):
         print(f"  ❌ Ошибка: {e}")
         return False
 
-def read_image_links(image_links_file):
-    """Читает ссылки на изображения из файла"""
-    links = []
+def read_image_links_from_csv(project_name):
+    """Читает ссылки на изображения из CSV файла проекта"""
+    import csv
     
+    print(f"\n=== ЧТЕНИЕ ССЫЛОК НА ИЗОБРАЖЕНИЯ ИЗ CSV ===")
+    
+    # Путь к CSV файлу с изображениями
+    data_dir = '/Users/theseus/Projects/osnovateli_doc_framework/data'
+    project_dir = os.path.join(data_dir, project_name)
+    database_dir = os.path.join(project_dir, 'database')
+    csv_file = os.path.join(database_dir, f'osnovateli_doc_{project_name}_image_links.csv')
+    
+    if not os.path.exists(csv_file):
+        print(f"❌ Файл {csv_file} не найден!")
+        print("Сначала запустите скрипт 1_parse_links.py для создания CSV файла с изображениями.")
+        return []
+    
+    links = []
     try:
-        with open(image_links_file, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                source_address = row.get('source_address', '').strip()
+                url = row.get('url', '').strip()
+                
+                if source_address and url:
+                    links.append({
+                        'display_name': source_address,
+                        'url': url
+                    })
+                    print(f"✓ Найдена ссылка: {source_address} -> {url[:50]}...")
         
-        for line in lines:
-            if line.startswith('#') or not line.strip():
-                continue
-            
-            # Парсим строку формата "A1 1 : https://example.com"
-            parts = line.strip().split(' : ', 1)
-            if len(parts) == 2:
-                display_name = parts[0].strip()
-                url = parts[1].strip()
-                links.append({
-                    'display_name': display_name,
-                    'url': url
-                })
-        
+        print(f"\n✓ Прочитано {len(links)} ссылок на изображения из {csv_file}")
         return links
         
-    except FileNotFoundError:
-        print(f"❌ Файл {image_links_file} не найден!")
-        return []
     except Exception as e:
-        print(f"❌ Ошибка при чтении файла {image_links_file}: {e}")
+        print(f"❌ Ошибка при чтении CSV файла {csv_file}: {e}")
         return []
 
 def create_error_placeholder(display_name, download_dir):
@@ -360,18 +352,10 @@ def create_error_placeholder(display_name, download_dir):
         # Рисуем текст черным цветом
         draw.text((x, y), text, fill='black', font=font)
         
-        # Сохраняем изображение
-        filename = display_name + '.jpg'
-        filepath = os.path.join(download_dir, filename)
+        # Сохраняем изображение с именем из CSV (без добавления индексов)
+        filepath = os.path.join(download_dir, f"{display_name}.jpg")
         
-        # Проверяем, не существует ли уже файл с таким именем
-        counter = 1
-        original_filepath = filepath
-        while os.path.exists(filepath):
-            name_without_ext = os.path.splitext(original_filepath)[0]
-            filepath = f"{name_without_ext}_{counter}.jpg"
-            counter += 1
-        
+        # Если файл уже существует, перезаписываем его
         img.save(filepath, 'JPEG', quality=95)
         print(f"  ✓ Создана заглушка: {os.path.basename(filepath)}")
         return True
@@ -381,10 +365,22 @@ def create_error_placeholder(display_name, download_dir):
         return False
 
 def log_download_error(display_name, url, error_file_path, download_dir):
-    """Логирует ошибки скачивания в файл и создает заглушку"""
+    """Логирует ошибки скачивания в CSV файл и создает заглушку"""
+    import csv
+    
     try:
-        with open(error_file_path, 'a', encoding='utf-8') as f:
-            f.write(f"{display_name} : {url}\n")
+        # Проверяем, существует ли файл (чтобы понять, нужно ли писать заголовки)
+        file_exists = os.path.exists(error_file_path)
+        
+        with open(error_file_path, 'a', encoding='utf-8', newline='') as f:
+            writer = csv.writer(f)
+            
+            # Если файл новый, пишем заголовки
+            if not file_exists:
+                writer.writerow(['source_address', 'url'])
+            
+            # Пишем данные об ошибке
+            writer.writerow([display_name, url])
         
         # Создаем изображение-заглушку
         create_error_placeholder(display_name, download_dir)
@@ -403,40 +399,36 @@ def main():
     # Запрашиваем название проекта
     project_name = get_project_name()
     
-    # Создаем структуру директорий
-    downloads_dir = os.path.expanduser('~/Downloads')
-    download_all_dir = os.path.join(downloads_dir, 'download_all')
-    project_dir = os.path.join(download_all_dir, project_name)
-    parse_links_dir = os.path.join(project_dir, '1_parse_links')
-    pictures_dir = os.path.join(project_dir, '2_pictures')
-    
-    # Проверяем существование директории с ссылками
-    if not os.path.exists(parse_links_dir):
-        print(f"❌ Директория {parse_links_dir} не найдена!")
-        print("Сначала запустите скрипт 1_parse_links.py")
+    # Проверяем, что проект существует
+    data_dir = '/Users/theseus/Projects/osnovateli_doc_framework/data'
+    project_dir = os.path.join(data_dir, project_name)
+    if not os.path.exists(project_dir):
+        print(f"❌ Проект {project_name} не найден в {project_dir}")
+        print("Сначала запустите скрипт 0_structure.py для создания структуры проекта")
         return
     
-    # Создаем директорию для изображений
+    # Создаем структуру директорий в проекте
+    pictures_dir = os.path.join(project_dir, 'pictures')
+    database_dir = os.path.join(project_dir, 'database')
+    
+    # Создаем директории
     os.makedirs(pictures_dir, exist_ok=True)
+    os.makedirs(database_dir, exist_ok=True)
     
-    # Путь к файлу с ссылками на изображения
-    image_links_file = os.path.join(parse_links_dir, 'image_links.txt')
+    # Путь к CSV файлу ошибок в директории database
+    error_file_path = os.path.join(database_dir, f'osnovateli_doc_{project_name}_download_img_errors.csv')
     
-    # Путь к файлу ошибок
-    error_file_path = os.path.join(pictures_dir, 'download_img_errors.txt')
-    
-    # Очищаем файл ошибок
+    # Очищаем файл ошибок если он существует
     if os.path.exists(error_file_path):
         os.remove(error_file_path)
     
     print(f"\n=== СКАЧИВАНИЕ ИЗОБРАЖЕНИЙ ===")
     print(f"Проект: {project_name}")
     print(f"Директория изображений: {pictures_dir}")
-    print(f"Файл с ссылками: {image_links_file}")
     print("Все изображения будут конвертированы в JPG формат")
     
-    # Читаем ссылки на изображения
-    image_links = read_image_links(image_links_file)
+    # Читаем ссылки на изображения из CSV файла
+    image_links = read_image_links_from_csv(project_name)
     
     if not image_links:
         print("❌ Не найдено ссылок на изображения для скачивания!")
@@ -466,7 +458,7 @@ def main():
     print(f"Всего обработано: {len(image_links)}")
     
     if failed_downloads > 0:
-        print(f"\nОшибки сохранены в файл: {error_file_path}")
+        print(f"\nОшибки сохранены в CSV файл: {error_file_path}")
     
     print(f"\nИзображения сохранены в JPG формате в: {pictures_dir}")
 
