@@ -21,3 +21,6 @@ smart_cropped_pictures
 manual_addons
 backup
 edit
+upd 
+motionarray 
+fullscreen_screenshots

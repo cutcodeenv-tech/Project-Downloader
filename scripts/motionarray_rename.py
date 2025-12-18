@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+Скрипт для переименования и перемещения видео из MotionArray
+Аналогичен pulltube_rename.py, но работает с MotionArray ссылками
+"""
 import argparse
 import re
 import sys
@@ -9,17 +13,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
-
-try:
-    # yt_dlp is preferred for reliable title extraction
-    import yt_dlp  # type: ignore
-except Exception:  # pragma: no cover
-    yt_dlp = None  # fallback to requests/HTML
-
-try:
-    import requests  # type: ignore
-except Exception:  # pragma: no cover
-    requests = None
+from urllib.parse import urlparse
 
 
 def get_project_name():
@@ -30,21 +24,26 @@ def get_project_name():
             return name
         print('Ошибка: название проекта не может быть пустым.')
 
-def get_project_video_dir(project_name: str) -> Path:
-    """Возвращает путь к директории video для указанного проекта"""
-    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "video"
+
+def get_project_motionarray_dir(project_name: str) -> Path:
+    """Возвращает путь к директории motionarray для указанного проекта"""
+    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "motionarray"
+
 
 def get_project_database_dir(project_name: str) -> Path:
     """Возвращает путь к директории database для указанного проекта"""
     return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "database"
 
-def get_youtube_links_csv_path(project_name: str) -> Path:
-    """Возвращает путь к CSV файлу с YouTube ссылками для указанного проекта"""
-    return get_project_database_dir(project_name) / f"osnovateli_doc_{project_name}_youtube_links.csv"
+
+def get_motionarray_links_csv_path(project_name: str) -> Path:
+    """Возвращает путь к CSV файлу с MotionArray ссылками для указанного проекта"""
+    return get_project_database_dir(project_name) / f"osnovateli_doc_{project_name}_motionarray_links.csv"
+
 
 def get_renamed_videos_dir(project_name: str) -> Path:
     """Возвращает путь к директории для переименованных видео"""
     return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "renamed_videos"
+
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}
 
@@ -54,7 +53,7 @@ def read_links_from_csv(file_path: Path) -> List[Tuple[str, str]]:
     
     Ожидаемый формат CSV:
     source_address,url
-    B3_1,https://www.youtube.com/watch?v=...
+    B3_1,https://motionarray.com/stock-video/...
     
     Возвращает список кортежей: (source_address, url)
     """
@@ -84,7 +83,7 @@ def read_links_from_csv(file_path: Path) -> List[Tuple[str, str]]:
 
 
 def normalize_text_for_match(text: str) -> str:
-    """Normalize text to improve fuzzy matching between title and filenames.
+    """Нормализует текст для улучшения сопоставления между названием и именем файла.
 
     - Lowercase
     - NFKD normalize and remove diacritics
@@ -94,58 +93,56 @@ def normalize_text_for_match(text: str) -> str:
     text = unicodedata.normalize("NFKD", text)
     text = "".join(c for c in text if not unicodedata.combining(c))
     text = text.lower()
-    # Remove common bracketed suffixes PullTube may add, keep generic normalization
     text = re.sub(r"[\W_]+", " ", text, flags=re.UNICODE)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
-def extract_youtube_title_with_ytdlp(url: str) -> Optional[str]:
-    if yt_dlp is None:
-        return None
-    ydl_opts = {
-        "quiet": True,
-        "no_warnings": True,
-        "skip_download": True,
-    }
+def extract_motionarray_title_from_url(url: str) -> Optional[str]:
+    """Извлекает название видео из URL MotionArray.
+    
+    Примеры:
+    https://motionarray.com/stock-video/man-counting-us-dollar-bills-1343142/
+    -> "man counting us dollar bills"
+    
+    https://motionarray.com/stock-video/businessman-is-counting-cash-1299253/
+    -> "businessman is counting cash"
+    """
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:  # type: ignore[attr-defined]
-            info = ydl.extract_info(url, download=False)
-            title = info.get("title") if isinstance(info, dict) else None
+        # Парсим URL
+        parsed = urlparse(url)
+        path = parsed.path
+        
+        # Удаляем начальный и конечный слэш
+        path = path.strip('/')
+        
+        # Разбиваем путь на части
+        parts = path.split('/')
+        
+        # Для MotionArray URL формата: /stock-video/название-видео-1234567/
+        # Нам нужна предпоследняя часть
+        if len(parts) >= 2 and parts[0] == 'stock-video':
+            title_part = parts[1]
+            
+            # Удаляем номер в конце (обычно формат: название-1234567)
+            # Находим последний дефис с цифрами
+            title_without_id = re.sub(r'-\d+$', '', title_part)
+            
+            # Заменяем дефисы на пробелы
+            title = title_without_id.replace('-', ' ')
+            
+            # Очищаем и форматируем
+            title = title.strip()
+            
             if title:
-                return str(title)
-    except Exception as e:  # pragma: no cover
-        print(f"yt-dlp не смог извлечь название: {e}", file=sys.stderr)
-    return None
-
-
-def extract_youtube_title_with_http(url: str) -> Optional[str]:
-    if requests is None:
+                return title
+        
+        print(f"⚠️  Не удалось распарсить URL: {url}", file=sys.stderr)
         return None
-    try:
-        resp = requests.get(url, timeout=20)
-        if resp.status_code != 200:
-            return None
-        html = resp.text
-        # Prefer OpenGraph title, then <title>
-        og = re.search(r'<meta\s+property=["\']og:title["\']\s+content=["\']([^"\']+)["\']', html, re.I)
-        if og:
-            return og.group(1)
-        t = re.search(r"<title>(.*?)</title>", html, re.I | re.S)
-        if t:
-            title = t.group(1)
-            title = re.sub(r"\s+-\s+YouTube$", "", title).strip()
-            return title
-    except Exception as e:  # pragma: no cover
-        print(f"HTTP метод не смог извлечь название: {e}", file=sys.stderr)
-    return None
-
-
-def get_youtube_title(url: str) -> Optional[str]:
-    title = extract_youtube_title_with_ytdlp(url)
-    if title:
-        return title
-    return extract_youtube_title_with_http(url)
+        
+    except Exception as e:
+        print(f"Ошибка при извлечении названия из URL: {e}", file=sys.stderr)
+        return None
 
 
 def collect_video_files(directory: Path) -> List[Path]:
@@ -161,18 +158,19 @@ def collect_video_files(directory: Path) -> List[Path]:
 
 
 def already_prefixed(name: str, index: str) -> bool:
-    # Avoid double-prefixing if the file already has the exact index prefix
+    """Проверяет, не добавлен ли уже префикс к файлу"""
     return name.startswith(f"{index} ")
 
 
 def find_best_match_file(files: List[Path], title: str) -> Optional[Path]:
+    """Находит наиболее подходящий файл по названию"""
     norm_title = normalize_text_for_match(title)
     candidates: List[Tuple[int, Path]] = []
     for f in files:
         base = f.stem
         norm_name = normalize_text_for_match(base)
         if norm_title and norm_title in norm_name:
-            # prefer longer filenames (often include extras, e.g., channel, resolution)
+            # Предпочитаем более длинные имена файлов
             candidates.append((len(norm_name), f))
     if not candidates:
         return None
@@ -183,7 +181,7 @@ def find_best_match_file(files: List[Path], title: str) -> Optional[Path]:
 def save_rename_log(project_name: str, rename_data: List[Dict]) -> None:
     """Сохраняет лог переименований в CSV файл"""
     database_dir = get_project_database_dir(project_name)
-    log_file = database_dir / f"osnovateli_doc_{project_name}_rename_log.csv"
+    log_file = database_dir / f"osnovateli_doc_{project_name}_motionarray_rename_log.csv"
     
     # Создаем директорию если не существует
     database_dir.mkdir(parents=True, exist_ok=True)
@@ -192,13 +190,14 @@ def save_rename_log(project_name: str, rename_data: List[Dict]) -> None:
     file_exists = log_file.exists()
     
     with log_file.open("a", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=['timestamp', 'source_address', 'original_filename', 'new_filename', 'youtube_url', 'youtube_title', 'status'])
+        writer = csv.DictWriter(f, fieldnames=['timestamp', 'source_address', 'original_filename', 'new_filename', 'motionarray_url', 'motionarray_title', 'status'])
         
         if not file_exists:
             writer.writeheader()
         
         for data in rename_data:
             writer.writerow(data)
+
 
 def move_and_rename_file(source_file: Path, target_dir: Path, new_name: str, dry_run: bool = False) -> Optional[Path]:
     """Перемещает файл в целевую директорию с новым именем"""
@@ -223,13 +222,13 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
         project_name = get_project_name()
     
     # Получаем пути к директориям проекта
-    video_dir = get_project_video_dir(project_name)
-    csv_file = get_youtube_links_csv_path(project_name)
+    motionarray_dir = get_project_motionarray_dir(project_name)
+    csv_file = get_motionarray_links_csv_path(project_name)
     renamed_dir = get_renamed_videos_dir(project_name)
     
-    print(f"\n=== ПЕРЕМЕЩЕНИЕ И ПЕРЕИМЕНОВАНИЕ ВИДЕО ===")
+    print(f"\n=== ПЕРЕМЕЩЕНИЕ И ПЕРЕИМЕНОВАНИЕ ВИДЕО ИЗ MOTIONARRAY ===")
     print(f"Проект: {project_name}")
-    print(f"Директория с видео: {video_dir}")
+    print(f"Директория с видео: {motionarray_dir}")
     print(f"CSV файл со ссылками: {csv_file}")
     print(f"Директория для переименованных видео: {renamed_dir}")
     if dry_run:
@@ -243,8 +242,8 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
         print("Сначала запустите скрипт 1_parse_links.py для создания CSV файла с ссылками.")
         return
     
-    if not video_dir.exists():
-        print(f"❌ Директория с видео не найдена: {video_dir}")
+    if not motionarray_dir.exists():
+        print(f"❌ Директория с видео не найдена: {motionarray_dir}")
         print("Убедитесь, что видеофайлы находятся в правильной директории.")
         return
 
@@ -257,7 +256,7 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
 
     # Собираем видеофайлы
     try:
-        files = collect_video_files(video_dir)
+        files = collect_video_files(motionarray_dir)
     except Exception as e:
         print(f"❌ Ошибка при сборе видеофайлов: {e}")
         return
@@ -281,8 +280,8 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
     for source_address, url in pairs:
         print(f"\n🔍 Обрабатываю: {source_address} -> {url}")
         
-        # Получаем название видео с YouTube
-        title = get_youtube_title(url)
+        # Извлекаем название из URL MotionArray
+        title = extract_motionarray_title_from_url(url)
         if not title:
             print(f"❌ Не удалось извлечь название для {source_address}")
             rename_log_data.append({
@@ -290,14 +289,14 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
                 'source_address': source_address,
                 'original_filename': '',
                 'new_filename': '',
-                'youtube_url': url,
-                'youtube_title': '',
+                'motionarray_url': url,
+                'motionarray_title': '',
                 'status': 'FAILED - не удалось извлечь название'
             })
             failed_renames += 1
             continue
 
-        print(f"📺 Название: {title}")
+        print(f"🎬 Название: {title}")
 
         # Ищем соответствующий файл
         match = find_best_match_file(files, title)
@@ -308,8 +307,8 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
                 'source_address': source_address,
                 'original_filename': '',
                 'new_filename': '',
-                'youtube_url': url,
-                'youtube_title': title,
+                'motionarray_url': url,
+                'motionarray_title': title,
                 'status': 'FAILED - файл не найден'
             })
             failed_renames += 1
@@ -340,8 +339,8 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
                     'source_address': source_address,
                     'original_filename': match.name,
                     'new_filename': new_name,
-                    'youtube_url': url,
-                    'youtube_title': title,
+                    'motionarray_url': url,
+                    'motionarray_title': title,
                     'status': 'SUCCESS'
                 })
                 successful_renames += 1
@@ -355,8 +354,8 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
                 'source_address': source_address,
                 'original_filename': match.name,
                 'new_filename': new_name,
-                'youtube_url': url,
-                'youtube_title': title,
+                'motionarray_url': url,
+                'motionarray_title': title,
                 'status': f'FAILED - {str(e)}'
             })
             failed_renames += 1
@@ -374,13 +373,13 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
     
     if not dry_run and successful_renames > 0:
         print(f"\n🎉 Перемещение и переименование завершено! Проверьте директорию: {renamed_dir}")
-        print(f"💾 Исходные файлы перемещены из: {video_dir}")
+        print(f"💾 Исходные файлы перемещены из: {motionarray_dir}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Переместить и переименовать видео из директории проекта, добавив префикс из CSV файла."
+            "Переместить и переименовать видео из MotionArray, добавив префикс из CSV файла."
         )
     )
     parser.add_argument(
@@ -403,5 +402,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
 

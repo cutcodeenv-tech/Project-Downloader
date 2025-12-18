@@ -69,6 +69,25 @@ def is_image_file(filename):
     image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
     return Path(filename).suffix.lower() in image_extensions
 
+def get_existing_cropped_images(output_dir):
+    """
+    Получает список существующих обработанных изображений в выходной директории
+    Возвращает set с именами файлов без расширения (например, {'B3_1', 'B4_1', ...})
+    """
+    existing = set()
+    
+    if not os.path.exists(output_dir):
+        return existing
+    
+    # Ищем все файлы .jpg в директории
+    for filename in os.listdir(output_dir):
+        if filename.endswith('.jpg') and os.path.isfile(os.path.join(output_dir, filename)):
+            # Извлекаем имя без расширения (например, "B3_1.jpg" -> "B3_1")
+            name_without_ext = Path(filename).stem
+            existing.add(name_without_ext)
+    
+    return existing
+
 def detect_faces_mediapipe(image):
     """
     Детектирует лица на изображении с помощью MediaPipe (приоритетный метод)
@@ -494,6 +513,7 @@ def smart_crop_image(input_path, output_path, target_width=1920, target_height=1
 def process_images(pictures_dir, output_dir):
     """
     Обрабатывает все изображения в указанной директории
+    При повторном запуске обрабатывает только новые изображения
     
     Args:
         pictures_dir: директория с исходными изображениями
@@ -513,34 +533,57 @@ def process_images(pictures_dir, output_dir):
         print("❌ В директории не найдено изображений!")
         return 0, 0, 0
     
-    print(f"\n📁 Найдено изображений: {len(image_files)}")
-    print(f"📤 Выходная директория: {output_dir}")
+    print(f"\n📁 Найдено изображений в исходной директории: {len(image_files)}")
+    
+    # Получаем список существующих обработанных изображений
+    existing_cropped = get_existing_cropped_images(output_dir)
+    
+    if existing_cropped:
+        print(f"✓ Найдено существующих обработанных изображений: {len(existing_cropped)}")
+        print(f"  Примеры: {list(existing_cropped)[:5]}{'...' if len(existing_cropped) > 5 else ''}")
+    else:
+        print(f"✓ Существующих обработанных изображений не найдено")
+    
+    # Фильтруем список - оставляем только те, для которых нет обработанной версии
+    images_to_process = []
+    skipped_count = 0
+    
+    for filename in image_files:
+        name_without_ext = Path(filename).stem
+        if name_without_ext in existing_cropped:
+            skipped_count += 1
+        else:
+            images_to_process.append(filename)
+    
+    print(f"\n📊 Статистика:")
+    print(f"  Всего изображений: {len(image_files)}")
+    print(f"  Уже обработано: {skipped_count}")
+    print(f"  Нужно обработать: {len(images_to_process)}")
+    
+    if not images_to_process:
+        print("\n✓ Все изображения уже обработаны! Нечего делать.")
+        return 0, skipped_count, 0
+    
+    print(f"\n📤 Выходная директория: {output_dir}")
     print(f"🎬 Целевой формат: 16:9 (1920x1080)\n")
     
     successful = 0
-    skipped = 0
     errors = 0
     
-    for i, filename in enumerate(image_files, 1):
-        print(f"\n[{i}/{len(image_files)}] Обрабатываю: {filename}")
+    for i, filename in enumerate(images_to_process, 1):
+        print(f"\n[{i}/{len(images_to_process)}] Обрабатываю: {filename}")
         
         input_path = os.path.join(pictures_dir, filename)
         # Сохраняем с тем же именем, но меняем расширение на .jpg
         output_filename = Path(filename).stem + '.jpg'
         output_path = os.path.join(output_dir, output_filename)
         
-        # Пропускаем, если файл уже существует
-        if os.path.exists(output_path):
-            print(f"  ⏭️  Файл уже существует, пропускаю")
-            skipped += 1
-            continue
-        
         if smart_crop_image(input_path, output_path):
             successful += 1
         else:
             errors += 1
     
-    return successful, skipped, errors
+    return successful, skipped_count, errors
 
 def main():
     """Основная функция скрипта"""

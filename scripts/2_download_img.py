@@ -236,11 +236,6 @@ def download_image(url, filename, download_dir):
             final_filepath = os.path.join(download_dir, f"{filename}.jpg")
             temp_filepath = os.path.join(download_dir, f"{filename}{extension}")
             
-            # Если файл уже существует, пропускаем его
-            if os.path.exists(final_filepath):
-                print(f"  ⚠️  Файл {filename}.jpg уже существует, пропускаю")
-                return True
-            
             # Сохраняем временный файл
             with open(temp_filepath, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
@@ -278,8 +273,30 @@ def download_image(url, filename, download_dir):
         print(f"  ❌ Ошибка: {e}")
         return False
 
+def get_existing_images(pictures_dir):
+    """
+    Получает список существующих изображений в директории
+    Возвращает set с именами файлов (например, {'B3_1', 'B4_1', ...})
+    """
+    existing = set()
+    
+    if not os.path.exists(pictures_dir):
+        return existing
+    
+    # Ищем все файлы .jpg в директории
+    for filename in os.listdir(pictures_dir):
+        if filename.endswith('.jpg'):
+            # Извлекаем имя без расширения (например, "B3_1.jpg" -> "B3_1")
+            name_without_ext = filename.replace('.jpg', '')
+            existing.add(name_without_ext)
+    
+    return existing
+
 def read_image_links_from_csv(project_name):
-    """Читает ссылки на изображения из CSV файла проекта"""
+    """
+    Читает ссылки на изображения из CSV файла проекта
+    Игнорирует строки начинающиеся с 'upd_'
+    """
     import csv
     
     print(f"\n=== ЧТЕНИЕ ССЫЛОК НА ИЗОБРАЖЕНИЯ ИЗ CSV ===")
@@ -303,7 +320,8 @@ def read_image_links_from_csv(project_name):
                 source_address = row.get('source_address', '').strip()
                 url = row.get('url', '').strip()
                 
-                if source_address and url:
+                # Игнорируем строки upd_ и пустые
+                if source_address and url and not source_address.startswith('upd_'):
                     links.append({
                         'display_name': source_address,
                         'url': url
@@ -418,14 +436,19 @@ def main():
     # Путь к CSV файлу ошибок в директории database
     error_file_path = os.path.join(database_dir, f'osnovateli_doc_{project_name}_download_img_errors.csv')
     
-    # Очищаем файл ошибок если он существует
-    if os.path.exists(error_file_path):
-        os.remove(error_file_path)
-    
     print(f"\n=== СКАЧИВАНИЕ ИЗОБРАЖЕНИЙ ===")
     print(f"Проект: {project_name}")
     print(f"Директория изображений: {pictures_dir}")
     print("Все изображения будут конвертированы в JPG формат")
+    
+    # Получаем список существующих изображений
+    existing_images = get_existing_images(pictures_dir)
+    
+    if existing_images:
+        print(f"\n✓ Найдено существующих изображений: {len(existing_images)}")
+        print(f"  Примеры: {list(existing_images)[:5]}{'...' if len(existing_images) > 5 else ''}")
+    else:
+        print(f"\n✓ Существующих изображений не найдено")
     
     # Читаем ссылки на изображения из CSV файла
     image_links = read_image_links_from_csv(project_name)
@@ -434,14 +457,30 @@ def main():
         print("❌ Не найдено ссылок на изображения для скачивания!")
         return
     
-    print(f"\nНайдено {len(image_links)} ссылок на изображения")
+    # Фильтруем ссылки - оставляем только те, для которых нет изображений
+    links_to_download = []
+    skipped_count = 0
     
-    # Скачиваем изображения
+    for link_info in image_links:
+        if link_info['display_name'] in existing_images:
+            skipped_count += 1
+        else:
+            links_to_download.append(link_info)
+    
+    print(f"\nВсего ссылок в CSV: {len(image_links)}")
+    print(f"Существующих изображений: {skipped_count}")
+    print(f"Нужно скачать: {len(links_to_download)}")
+    
+    if not links_to_download:
+        print("\n✓ Все изображения уже скачаны! Нечего делать.")
+        return
+    
+    # Скачиваем только новые изображения
     successful_downloads = 0
     failed_downloads = 0
     
-    for i, link_info in enumerate(image_links, 1):
-        print(f"\n[{i}/{len(image_links)}] Обрабатываю: {link_info['display_name']}")
+    for i, link_info in enumerate(links_to_download, 1):
+        print(f"\n[{i}/{len(links_to_download)}] Обрабатываю: {link_info['display_name']}")
         
         if download_image(link_info['url'], link_info['display_name'], pictures_dir):
             successful_downloads += 1
@@ -455,12 +494,15 @@ def main():
     print(f"\n=== РЕЗУЛЬТАТЫ СКАЧИВАНИЯ ===")
     print(f"Успешно скачано и конвертировано: {successful_downloads}")
     print(f"Ошибок скачивания: {failed_downloads}")
-    print(f"Всего обработано: {len(image_links)}")
+    print(f"Пропущено (уже существуют): {skipped_count}")
+    print(f"Всего ссылок в CSV: {len(image_links)}")
+    print(f"Всего изображений в директории: {len(existing_images) + successful_downloads}")
     
     if failed_downloads > 0:
-        print(f"\nОшибки сохранены в CSV файл: {error_file_path}")
+        print(f"\n⚠️  Ошибки сохранены в CSV файл: {error_file_path}")
+        print(f"   (Созданы заглушки для неудачных скачиваний)")
     
-    print(f"\nИзображения сохранены в JPG формате в: {pictures_dir}")
+    print(f"\n✓ Изображения сохранены в JPG формате в: {pictures_dir}")
 
 if __name__ == "__main__":
     main()

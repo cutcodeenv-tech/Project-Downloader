@@ -9,6 +9,57 @@ import csv
 from datetime import datetime
 from dotenv import load_dotenv
 
+def check_if_reparse(spreadsheet_url, database_dir):
+    """
+    Проверяет, парсилась ли данная ссылка ранее
+    Возвращает True если это повторный парсинг, False если первый раз
+    """
+    input_link_file = os.path.join(database_dir, 'input_link.csv')
+    
+    if not os.path.exists(input_link_file):
+        return False
+    
+    try:
+        with open(input_link_file, 'r', encoding='utf-8') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                if row.get('url') == spreadsheet_url:
+                    return True
+    except Exception as e:
+        print(f"⚠️  Ошибка при чтении input_link.csv: {e}")
+        return False
+    
+    return False
+
+def save_input_link_info(spreadsheet_url, spreadsheet_id, database_dir, is_reparse):
+    """
+    Сохраняет информацию о парсимой ссылке в input_link.csv
+    Записывает: URL таблицы, SPREADSHEET_ID, дату и время создания
+    При первом запуске - создает файл, при повторном - добавляет строку
+    """
+    input_link_file = os.path.join(database_dir, 'input_link.csv')
+    
+    # Получаем текущую дату и время
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    
+    if is_reparse:
+        # Добавляем новую запись в существующий файл
+        with open(input_link_file, 'a', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow([spreadsheet_url, spreadsheet_id, timestamp])
+        print(f"✓ Обновлена информация о ссылке в: input_link.csv (повторный парсинг)")
+    else:
+        # Создаем новый файл
+        with open(input_link_file, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['url', 'spreadsheet_id', 'created_at'])  # Заголовки
+            writer.writerow([spreadsheet_url, spreadsheet_id, timestamp])
+        print(f"✓ Информация о ссылке сохранена в: input_link.csv")
+    
+    print(f"  URL: {spreadsheet_url}")
+    print(f"  ID: {spreadsheet_id}")
+    print(f"  Дата: {timestamp}")
+
 def resolve_worksheet(sh):
     """Возвращает рабочий лист, устойчиво к различным названиям листов.
     Порядок выбора:
@@ -53,6 +104,7 @@ def resolve_worksheet(sh):
 def extract_spreadsheet_id_from_url():
     """
     Запрашивает у пользователя ссылку на Google таблицу и извлекает из неё SPREADSHEET_ID
+    Возвращает кортеж: (url, spreadsheet_id)
     """
     while True:
         print("\n=== ВВОД ССЫЛКИ НА GOOGLE ТАБЛИЦУ ===")
@@ -80,7 +132,7 @@ def extract_spreadsheet_id_from_url():
         if match:
             spreadsheet_id = match.group(1)
             print(f"✓ SPREADSHEET_ID успешно извлечен: {spreadsheet_id}")
-            return spreadsheet_id
+            return url, spreadsheet_id
         else:
             print("Ошибка: не удалось извлечь SPREADSHEET_ID из ссылки.")
             print("Убедитесь, что ссылка корректная и содержит ID таблицы.")
@@ -95,11 +147,11 @@ def get_service_email():
         return "неизвестен"
     return service_email
 
-def extract_links_from_csv_column_b(database_dir):
+def extract_links_from_csv_column_b(database_dir, gdoc_filename):
     """Извлекает ссылки из колонки B сохраненного CSV файла"""
     print(f"\n=== ПОИСК ССЫЛОК В КОЛОНКЕ B ===")
     
-    input_gdoc_file = os.path.join(database_dir, 'input_gdoc.csv')
+    input_gdoc_file = os.path.join(database_dir, gdoc_filename)
     
     if not os.path.exists(input_gdoc_file):
         print(f"Ошибка: файл {input_gdoc_file} не найден")
@@ -146,6 +198,10 @@ def get_project_name():
 def is_youtube_url(url):
     """Проверяет, является ли ссылка YouTube ссылкой"""
     return 'youtube.com' in url or 'youtu.be' in url
+
+def is_motionarray_url(url):
+    """Проверяет, является ли ссылка ссылкой на motionarray"""
+    return 'motionarray.com' in url
 
 def is_image_url(url):
     """Проверяет, является ли ссылка ссылкой на изображение"""
@@ -222,10 +278,13 @@ def categorize_url(url):
     # Сначала проверяем YouTube
     if is_youtube_url(url):
         return 'youtube'
+    # Проверяем motionarray
+    elif is_motionarray_url(url):
+        return 'motionarray'
     # Затем проверяем изображения
     elif is_image_url(url):
         return 'image'
-    # Затем проверяем видео (кроме YouTube)
+    # Затем проверяем видео (кроме YouTube и motionarray)
     elif is_video_url(url):
         return 'video'
     else:
@@ -237,8 +296,11 @@ def categorize_url(url):
             # Если ничего не подошло, считаем остальными ссылками
             return 'other'
 
-def save_table_structure_to_csv(spreadsheet_id, database_dir):
-    """Сохраняет полную структуру таблицы в input_gdoc.csv"""
+def save_table_structure_to_csv(spreadsheet_id, database_dir, is_reparse):
+    """
+    Сохраняет полную структуру таблицы в input_gdoc.csv
+    При повторном парсинге создает файл с датой: input_gdoc_{dd-mm-yyyy}_{hh-mm}.csv
+    """
     print(f"\n=== СОХРАНЕНИЕ СТРУКТУРЫ ТАБЛИЦЫ ===")
     
     # Загружаем переменные окружения
@@ -271,41 +333,113 @@ def save_table_structure_to_csv(spreadsheet_id, database_dir):
     # Получаем все данные из таблицы
     all_values = worksheet.get_all_values()
     
+    # Определяем имя файла
+    if is_reparse:
+        timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M')
+        input_gdoc_file = os.path.join(database_dir, f'input_gdoc_{timestamp}.csv')
+        print(f"⚠️  ПОВТОРНЫЙ ПАРСИНГ - создаем новую копию с датой")
+    else:
+        input_gdoc_file = os.path.join(database_dir, 'input_gdoc.csv')
+    
     # Сохраняем в CSV
-    input_gdoc_file = os.path.join(database_dir, 'input_gdoc.csv')
     with open(input_gdoc_file, 'w', newline='', encoding='utf-8') as csvfile:
         writer = csv.writer(csvfile)
         for row in all_values:
             writer.writerow(row)
     
-    print(f"✓ Структура таблицы сохранена в: input_gdoc.csv")
+    filename = os.path.basename(input_gdoc_file)
+    print(f"✓ Структура таблицы сохранена в: {filename}")
     print(f"✓ Строк в таблице: {len(all_values)}")
-    return all_values
+    return all_values, filename
 
-def save_links_to_csv(all_links, database_dir, project_name):
-    """Сохраняет найденные ссылки в CSV файл"""
+def get_existing_urls_from_csv(filepath):
+    """
+    Читает существующие URL из CSV файла
+    Возвращает set с URL (для быстрой проверки наличия)
+    Игнорирует строки начинающиеся с 'upd_'
+    """
+    existing_urls = set()
+    
+    if not os.path.exists(filepath):
+        return existing_urls
+    
+    try:
+        with open(filepath, 'r', encoding='utf-8') as csvfile:
+            reader = csv.reader(csvfile)
+            next(reader, None)  # Пропускаем заголовок
+            
+            for row in reader:
+                if len(row) >= 2:
+                    source_address = row[0]
+                    url = row[1]
+                    # Игнорируем строки upd_ и пустые URL
+                    if not source_address.startswith('upd_') and url.strip():
+                        existing_urls.add(url.strip())
+    except Exception as e:
+        print(f"⚠️  Ошибка при чтении существующих ссылок: {e}")
+    
+    return existing_urls
+
+def filter_new_links(all_links, existing_urls):
+    """
+    Фильтрует список ссылок, оставляя только те, которых нет в existing_urls
+    """
+    new_links = []
+    for link_info in all_links:
+        if link_info['url'] not in existing_urls:
+            new_links.append(link_info)
+    return new_links
+
+def save_links_to_csv(all_links, database_dir, project_name, is_reparse):
+    """
+    Сохраняет найденные ссылки в CSV файл
+    При повторном парсинге добавляет строку upd_{dd-mm-yyyy}_{hh-mm} и дописывает только новые ссылки
+    """
     if not all_links:
         print("Нет ссылок для сохранения")
         return
     
-    # Сохраняем все ссылки в CSV
     all_links_file = os.path.join(database_dir, f'osnovateli_doc_{project_name}_all_links.csv')
-    with open(all_links_file, 'w', newline='', encoding='utf-8') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(['source_address', 'url'])  # Заголовки
-        for link_info in all_links:
-            writer.writerow([link_info['source_address'], link_info['url']])
     
-    print(f"\n✓ Сохранено {len(all_links)} ссылок в файл: osnovateli_doc_{project_name}_all_links.csv")
+    if is_reparse and os.path.exists(all_links_file):
+        # Повторный парсинг - сравниваем с существующими ссылками
+        existing_urls = get_existing_urls_from_csv(all_links_file)
+        new_links = filter_new_links(all_links, existing_urls)
+        
+        if new_links:
+            timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M')
+            with open(all_links_file, 'a', newline='', encoding='utf-8') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow([f'upd_{timestamp}', ''])  # Строка-разделитель с датой
+                for link_info in new_links:
+                    writer.writerow([link_info['source_address'], link_info['url']])
+            print(f"\n✓ Добавлено {len(new_links)} НОВЫХ ссылок в файл: osnovateli_doc_{project_name}_all_links.csv")
+            print(f"  (после строки upd_{timestamp})")
+            print(f"  Всего было найдено ссылок: {len(all_links)}, из них новых: {len(new_links)}")
+        else:
+            print(f"\n✓ Новых ссылок не обнаружено в файле: osnovateli_doc_{project_name}_all_links.csv")
+            print(f"  Всего найдено ссылок: {len(all_links)}, все уже существуют")
+    else:
+        # Первый парсинг - создаем новый файл
+        with open(all_links_file, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.writer(csvfile)
+            writer.writerow(['source_address', 'url'])  # Заголовки
+            for link_info in all_links:
+                writer.writerow([link_info['source_address'], link_info['url']])
+        print(f"\n✓ Сохранено {len(all_links)} ссылок в файл: osnovateli_doc_{project_name}_all_links.csv")
 
-def categorize_links_from_csv(all_links, database_dir, project_name):
-    """Категоризирует ссылки из CSV файла по типам и сохраняет в отдельные CSV"""
+def categorize_links_from_csv(all_links, database_dir, project_name, is_reparse):
+    """
+    Категоризирует ссылки из CSV файла по типам и сохраняет в отдельные CSV
+    При повторном парсинге добавляет строку upd_{dd-mm-yyyy}_{hh-mm} и дописывает только новые ссылки
+    """
     print(f"\n=== КАТЕГОРИЗАЦИЯ ССЫЛОК ===")
     
     # Словари для группировки ссылок
     categorized_links = {
         'image': [],
         'youtube': [],
+        'motionarray': [],
         'video': [],
         'other': []
     }
@@ -320,18 +454,39 @@ def categorize_links_from_csv(all_links, database_dir, project_name):
         print(f"[{category.upper()}] {link_info['source_address']}: {link_info['url']}")
     
     # Сохраняем результаты в отдельные CSV файлы
+    timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M')
+    
     for category, links in categorized_links.items():
         if links:
             filename = f"osnovateli_doc_{project_name}_{category}_links.csv"
             filepath = os.path.join(database_dir, filename)
             
-            with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.writer(csvfile)
-                writer.writerow(['source_address', 'url'])  # Заголовки
-                for link_info in links:
-                    writer.writerow([link_info['source_address'], link_info['url']])
-            
-            print(f"\n✓ Сохранено {len(links)} ссылок категории '{category}' в файл: {filename}")
+            if is_reparse and os.path.exists(filepath):
+                # Повторный парсинг - фильтруем только новые ссылки
+                existing_urls = get_existing_urls_from_csv(filepath)
+                new_links = filter_new_links(links, existing_urls)
+                
+                if new_links:
+                    # Добавляем upd строку и дописываем только новые ссылки
+                    with open(filepath, 'a', newline='', encoding='utf-8') as csvfile:
+                        writer = csv.writer(csvfile)
+                        writer.writerow([f'upd_{timestamp}', ''])  # Строка-разделитель с датой
+                        for link_info in new_links:
+                            writer.writerow([link_info['source_address'], link_info['url']])
+                    print(f"\n✓ Добавлено {len(new_links)} НОВЫХ ссылок категории '{category}' в файл: {filename}")
+                    print(f"  (после строки upd_{timestamp})")
+                    print(f"  Всего найдено ссылок категории '{category}': {len(links)}, из них новых: {len(new_links)}")
+                else:
+                    print(f"\n✓ Новых ссылок категории '{category}' не обнаружено")
+                    print(f"  Всего найдено ссылок: {len(links)}, все уже существуют")
+            else:
+                # Первый парсинг - создаем новый файл
+                with open(filepath, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.writer(csvfile)
+                    writer.writerow(['source_address', 'url'])  # Заголовки
+                    for link_info in links:
+                        writer.writerow([link_info['source_address'], link_info['url']])
+                print(f"\n✓ Сохранено {len(links)} ссылок категории '{category}' в файл: {filename}")
     
     return categorized_links
 
@@ -349,7 +504,7 @@ def main():
     project_name = get_project_name()
     
     # Запрашиваем ссылку на таблицу
-    spreadsheet_id = extract_spreadsheet_id_from_url()
+    spreadsheet_url, spreadsheet_id = extract_spreadsheet_id_from_url()
     
     # Создаем структуру директорий в data/
     data_dir = '/Users/theseus/Projects/osnovateli_doc_framework/data'
@@ -360,35 +515,60 @@ def main():
     os.makedirs(database_dir, exist_ok=True)
     print(f"✓ Рабочая директория: {database_dir}")
     
+    # Проверяем, повторный ли это парсинг
+    is_reparse = check_if_reparse(spreadsheet_url, database_dir)
+    
+    if is_reparse:
+        print(f"\n⚠️  ВНИМАНИЕ: Обнаружен повторный парсинг этой ссылки!")
+        print(f"   Существующие данные будут сохранены")
+        print(f"   Новые данные будут добавлены после строк upd_<дата>")
+    else:
+        print(f"\n✓ Первый парсинг этой ссылки")
+    
+    # Сохраняем информацию о ссылке
+    save_input_link_info(spreadsheet_url, spreadsheet_id, database_dir, is_reparse)
+    
     # Этап 1: Сохранение структуры таблицы
-    table_structure = save_table_structure_to_csv(spreadsheet_id, database_dir)
+    table_structure, gdoc_filename = save_table_structure_to_csv(spreadsheet_id, database_dir, is_reparse)
     
     # Этап 2: Автоматический поиск ссылок в колонке B
-    all_links = extract_links_from_csv_column_b(database_dir)
+    all_links = extract_links_from_csv_column_b(database_dir, gdoc_filename)
     
     # Этап 3: Сохранение всех ссылок в CSV
-    save_links_to_csv(all_links, database_dir, project_name)
+    save_links_to_csv(all_links, database_dir, project_name, is_reparse)
     
     # Этап 4: Категоризация ссылок
-    categorized_links = categorize_links_from_csv(all_links, database_dir, project_name)
+    categorized_links = categorize_links_from_csv(all_links, database_dir, project_name, is_reparse)
     
     print(f"\n=== РЕЗУЛЬТАТЫ ===")
     print(f"Проект: {project_name}")
     print(f"Директория: {database_dir}")
+    print(f"Режим: {'ПОВТОРНЫЙ ПАРСИНГ' if is_reparse else 'ПЕРВЫЙ ПАРСИНГ'}")
     print(f"Изображения: {len(categorized_links['image'])} ссылок")
     print(f"YouTube: {len(categorized_links['youtube'])} ссылок")
+    print(f"MotionArray: {len(categorized_links['motionarray'])} ссылок")
     print(f"Видео (другие): {len(categorized_links['video'])} ссылок")
     print(f"Остальные: {len(categorized_links['other'])} ссылок")
     total_links = sum(len(links) for links in categorized_links.values())
     print(f"Всего: {total_links} ссылок")
     
     print(f"\n=== СОЗДАННЫЕ ФАЙЛЫ ===")
-    print(f"✓ input_gdoc.csv - полная структура таблицы")
-    print(f"✓ osnovateli_doc_{project_name}_all_links.csv - все ссылки")
-    print(f"✓ osnovateli_doc_{project_name}_image_links.csv - ссылки на изображения")
-    print(f"✓ osnovateli_doc_{project_name}_youtube_links.csv - YouTube ссылки")
-    print(f"✓ osnovateli_doc_{project_name}_video_links.csv - другие видео")
-    print(f"✓ osnovateli_doc_{project_name}_other_links.csv - остальные ссылки")
+    if is_reparse:
+        print(f"✓ {gdoc_filename} - новая копия структуры таблицы с датой")
+        print(f"✓ osnovateli_doc_{project_name}_all_links.csv - обновлен (добавлены новые ссылки)")
+        print(f"✓ osnovateli_doc_{project_name}_image_links.csv - обновлен (добавлены новые ссылки)")
+        print(f"✓ osnovateli_doc_{project_name}_youtube_links.csv - обновлен (добавлены новые ссылки)")
+        print(f"✓ osnovateli_doc_{project_name}_motionarray_links.csv - обновлен (добавлены новые ссылки)")
+        print(f"✓ osnovateli_doc_{project_name}_video_links.csv - обновлен (добавлены новые ссылки)")
+        print(f"✓ osnovateli_doc_{project_name}_other_links.csv - обновлен (добавлены новые ссылки)")
+    else:
+        print(f"✓ input_gdoc.csv - полная структура таблицы")
+        print(f"✓ osnovateli_doc_{project_name}_all_links.csv - все ссылки")
+        print(f"✓ osnovateli_doc_{project_name}_image_links.csv - ссылки на изображения")
+        print(f"✓ osnovateli_doc_{project_name}_youtube_links.csv - YouTube ссылки")
+        print(f"✓ osnovateli_doc_{project_name}_motionarray_links.csv - MotionArray ссылки")
+        print(f"✓ osnovateli_doc_{project_name}_video_links.csv - другие видео")
+        print(f"✓ osnovateli_doc_{project_name}_other_links.csv - остальные ссылки")
 
 if __name__ == "__main__":
     main()

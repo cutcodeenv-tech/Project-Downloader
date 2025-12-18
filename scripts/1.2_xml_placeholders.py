@@ -6,9 +6,37 @@ from dotenv import load_dotenv
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 
+def get_latest_input_gdoc_file(database_dir):
+    """
+    Ищет самый последний файл input_gdoc (включая версии с датой)
+    Возвращает путь к файлу и его имя
+    """
+    # Ищем все файлы input_gdoc*
+    import glob
+    pattern = os.path.join(database_dir, 'input_gdoc*.csv')
+    files = glob.glob(pattern)
+    
+    if not files:
+        return None, None
+    
+    # Если есть только input_gdoc.csv, возвращаем его
+    base_file = os.path.join(database_dir, 'input_gdoc.csv')
+    if len(files) == 1 and files[0] == base_file:
+        return base_file, 'input_gdoc.csv'
+    
+    # Если есть файлы с датами, выбираем самый последний по имени
+    dated_files = [f for f in files if 'input_gdoc_' in f]
+    if dated_files:
+        # Сортируем по имени (формат input_gdoc_{dd-mm-yyyy}_{hh-mm}.csv)
+        latest = sorted(dated_files)[-1]
+        return latest, os.path.basename(latest)
+    
+    # По умолчанию возвращаем базовый файл
+    return base_file, 'input_gdoc.csv'
+
 def read_csv_data(project_name):
     """
-    Читает данные из input_gdoc.csv файла проекта
+    Читает данные из input_gdoc.csv файла проекта (или самой последней версии)
     """
     print(f"\n=== ЧТЕНИЕ ДАННЫХ ИЗ CSV ФАЙЛА ===")
     
@@ -16,12 +44,15 @@ def read_csv_data(project_name):
     data_dir = '/Users/theseus/Projects/osnovateli_doc_framework/data'
     project_dir = os.path.join(data_dir, project_name)
     database_dir = os.path.join(project_dir, 'database')
-    csv_file = os.path.join(database_dir, 'input_gdoc.csv')
     
-    if not os.path.exists(csv_file):
-        print(f"Ошибка: файл {csv_file} не найден.")
+    csv_file, csv_filename = get_latest_input_gdoc_file(database_dir)
+    
+    if not csv_file or not os.path.exists(csv_file):
+        print(f"Ошибка: файл input_gdoc.csv не найден в {database_dir}")
         print("Сначала запустите скрипт 1_parse_links.py для создания CSV файла.")
         return []
+    
+    print(f"✓ Используется файл: {csv_filename}")
     
     rows_data = []
     try:
@@ -30,20 +61,22 @@ def read_csv_data(project_name):
             csv_rows = list(reader)
             
             for i, row in enumerate(csv_rows, 1):
-                # Берем первые три колонки (A, B, C)
+                # Берем первые четыре колонки (A, B, C, D)
                 col_a = row[0] if len(row) > 0 else ""
                 col_b = row[1] if len(row) > 1 else ""
                 col_c = row[2] if len(row) > 2 else ""
+                col_d = row[3] if len(row) > 3 else ""
                 
                 # Если хотя бы одна колонка содержит данные, добавляем строку
-                if col_a.strip() or col_b.strip() or col_c.strip():
+                if col_a.strip() or col_b.strip() or col_c.strip() or col_d.strip():
                     rows_data.append({
                         'row_number': i,
                         'col_a': col_a.strip(),
                         'col_b': col_b.strip(),
-                        'col_c': col_c.strip()
+                        'col_c': col_c.strip(),
+                        'col_d': col_d.strip()
                     })
-                    print(f"Строка {i}: A='{col_a[:50]}...' B='{col_b[:50]}...' C='{col_c[:50]}...'")
+                    print(f"Строка {i}: A='{col_a[:50]}...' B='{col_b[:50]}...' C='{col_c[:50]}...' D='{col_d[:50]}...'")
         
         print(f"\n✓ Прочитано {len(rows_data)} строк с данными из {csv_file}")
         return rows_data
@@ -52,6 +85,29 @@ def read_csv_data(project_name):
         print(f"Ошибка при чтении CSV файла: {e}")
         return []
 
+def get_existing_placeholders(output_dir):
+    """
+    Получает список существующих плейсхолдеров в директории
+    Возвращает set с номерами строк (например, {1, 2, 3, ...})
+    """
+    existing = set()
+    
+    if not os.path.exists(output_dir):
+        return existing
+    
+    # Ищем все файлы .jpg в директории
+    for filename in os.listdir(output_dir):
+        if filename.endswith('.jpg'):
+            # Извлекаем номер строки из имени файла (например, "1.jpg" -> 1)
+            try:
+                row_number = int(filename.replace('.jpg', ''))
+                existing.add(row_number)
+            except ValueError:
+                # Игнорируем файлы с неправильным именем
+                pass
+    
+    return existing
+
 def get_project_name():
     while True:
         name = input('Введите название проекта: ').strip()
@@ -59,12 +115,12 @@ def get_project_name():
             return name
         print('Ошибка: название проекта не может быть пустым.')
 
-def calculate_font_size(text1, text2, text3):
+def calculate_font_size(text1, text2, text3, text4):
     """
     Рассчитывает оптимальный размер шрифта исходя из объема текста
     """
     # Объединяем весь текст
-    all_text = f"{text1} {text2} {text3}".strip()
+    all_text = f"{text1} {text2} {text3} {text4}".strip()
     
     if not all_text:
         return 50  # Размер по умолчанию для пустого текста
@@ -102,12 +158,12 @@ def remove_links_from_text(text):
     # Убираем лишние пробелы
     return ' '.join(text_without_links.split())
 
-def create_text_image(text1, text2, text3, row_number, output_path):
+def create_text_image(text1, text2, text3, text4, row_number, output_path):
     """
-    Создает изображение 1920x1080 с тремя абзацами текста с подписями и номером строки
+    Создает изображение 1920x1080 с четырьмя абзацами текста с подписями и номером строки
     """
     # Рассчитываем оптимальный размер шрифта
-    font_size = calculate_font_size(text1, text2, text3)
+    font_size = calculate_font_size(text1, text2, text3, text4)
     
     # Создаем изображение
     width, height = 1920, 1080
@@ -172,7 +228,8 @@ def create_text_image(text1, text2, text3, row_number, output_path):
     texts_and_labels = [
         (text1, "voiceover"),
         (remove_links_from_text(text2), "storyboard"),  # Удаляем ссылки из второй колонки
-        (text3, "mogrt")
+        (text3, "mogrt"),
+        (text4, "comment")
     ]
     current_y = margin + font_size + 30  # Отступ от номера строки
     
@@ -201,30 +258,51 @@ def create_text_image(text1, text2, text3, row_number, output_path):
 def create_images_from_data(rows_data, output_dir):
     """
     Создает изображения из данных таблицы
+    При повторном запуске создает только новые плейсхолдеры
     """
     print(f"\n=== СОЗДАНИЕ ИЗОБРАЖЕНИЙ ===")
     
     # Создаем выходную директорию
     os.makedirs(output_dir, exist_ok=True)
     
+    # Получаем список существующих плейсхолдеров
+    existing_placeholders = get_existing_placeholders(output_dir)
+    
+    if existing_placeholders:
+        print(f"✓ Найдено существующих плейсхолдеров: {len(existing_placeholders)}")
+        print(f"  Номера: {sorted(list(existing_placeholders))[:10]}{'...' if len(existing_placeholders) > 10 else ''}")
+    else:
+        print(f"✓ Существующих плейсхолдеров не найдено")
+    
     created_count = 0
+    skipped_count = 0
     
     for row_data in rows_data:
         row_number = row_data['row_number']
         col_a = row_data['col_a']
         col_b = row_data['col_b']
         col_c = row_data['col_c']
+        col_d = row_data['col_d']
+        
+        # Проверяем, существует ли уже плейсхолдер для этой строки
+        if row_number in existing_placeholders:
+            skipped_count += 1
+            continue
         
         # Создаем имя файла
         filename = f"{row_number}.jpg"
         output_path = os.path.join(output_dir, filename)
         
         # Создаем изображение
-        create_text_image(col_a, col_b, col_c, row_number, output_path)
+        create_text_image(col_a, col_b, col_c, col_d, row_number, output_path)
         created_count += 1
     
-    print(f"\n✓ Создано {created_count} изображений в директории: {output_dir}")
-    return created_count
+    print(f"\n✓ Создано новых изображений: {created_count}")
+    if skipped_count > 0:
+        print(f"✓ Пропущено существующих: {skipped_count}")
+    print(f"✓ Директория: {output_dir}")
+    
+    return created_count, skipped_count
 
 def main():
     print("=== СКРИПТ СОЗДАНИЯ ИЗОБРАЖЕНИЙ С ТЕКСТОМ ИЗ CSV ФАЙЛА ===")
@@ -254,12 +332,15 @@ def main():
         return
     
     # Создаем изображения
-    created_count = create_images_from_data(rows_data, placeholders_dir)
+    created_count, skipped_count = create_images_from_data(rows_data, placeholders_dir)
     
     print(f"\n=== РЕЗУЛЬТАТЫ ===")
     print(f"Проект: {project_name}")
     print(f"Директория: {placeholders_dir}")
-    print(f"Создано изображений: {created_count}")
+    print(f"Создано новых изображений: {created_count}")
+    if skipped_count > 0:
+        print(f"Пропущено существующих: {skipped_count}")
+    print(f"Всего строк обработано: {len(rows_data)}")
     print(f"Размер изображений: 1920x1080")
     print(f"Размер шрифта: автоматический (зависит от объема текста)")
 

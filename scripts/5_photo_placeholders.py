@@ -17,6 +17,25 @@ def get_project_name():
             return name
         print('Ошибка: название проекта не может быть пустым.')
 
+def get_existing_video_placeholders(output_dir):
+    """
+    Получает список существующих видео-плейсхолдеров в выходной директории
+    Возвращает set с именами файлов без расширения (например, {'B3_1', 'B4_1', ...})
+    """
+    existing = set()
+    
+    if not os.path.exists(output_dir):
+        return existing
+    
+    # Ищем все файлы .mov в директории
+    for filename in os.listdir(output_dir):
+        if filename.endswith('.mov') and os.path.isfile(os.path.join(output_dir, filename)):
+            # Извлекаем имя без расширения (например, "B3_1.mov" -> "B3_1")
+            name_without_ext = os.path.splitext(filename)[0]
+            existing.add(name_without_ext)
+    
+    return existing
+
 def check_ffmpeg():
     """Проверяет наличие ffmpeg в системе"""
     try:
@@ -138,8 +157,38 @@ def main():
         return
     
     print(f"\nПроект: {project_name}")
-    print(f"Найдено {len(jpg_files)} JPG файлов")
-    print(f"Входная директория: {input_dir}")
+    print(f"📁 Найдено JPG файлов в исходной директории: {len(jpg_files)}")
+    
+    # Получаем список существующих видео-плейсхолдеров
+    existing_videos = get_existing_video_placeholders(output_dir)
+    
+    if existing_videos:
+        print(f"✓ Найдено существующих видео-плейсхолдеров: {len(existing_videos)}")
+        print(f"  Примеры: {list(existing_videos)[:5]}{'...' if len(existing_videos) > 5 else ''}")
+    else:
+        print(f"✓ Существующих видео-плейсхолдеров не найдено")
+    
+    # Фильтруем список - оставляем только те, для которых нет видео
+    files_to_process = []
+    skipped_count = 0
+    
+    for image_path in jpg_files:
+        base_name = os.path.splitext(os.path.basename(image_path))[0]
+        if base_name in existing_videos:
+            skipped_count += 1
+        else:
+            files_to_process.append(image_path)
+    
+    print(f"\n📊 Статистика:")
+    print(f"  Всего JPG файлов: {len(jpg_files)}")
+    print(f"  Уже обработано: {skipped_count}")
+    print(f"  Нужно обработать: {len(files_to_process)}")
+    
+    if not files_to_process:
+        print("\n✓ Все видео-плейсхолдеры уже созданы! Нечего делать.")
+        return
+    
+    print(f"\nВходная директория: {input_dir}")
     print(f"Выходная директория: {output_dir}")
     print(f"Файл с царапинами: {scratches_path}")
     print(f"Альфа-маска: {alpha_mask_path}")
@@ -148,8 +197,8 @@ def main():
     successful_videos = 0
     failed_videos = 0
     
-    for i, image_path in enumerate(jpg_files, 1):
-        print(f"\n[{i}/{len(jpg_files)}] Обрабатываю: {os.path.basename(image_path)}")
+    for i, image_path in enumerate(files_to_process, 1):
+        print(f"\n[{i}/{len(files_to_process)}] Обрабатываю: {os.path.basename(image_path)}")
         
         # Проверяем соотношение сторон
         if not check_image_aspect_ratio(image_path):
@@ -168,9 +217,11 @@ def main():
             failed_videos += 1
     
     print(f"\n=== РЕЗУЛЬТАТЫ ОБРАБОТКИ ===")
-    print(f"Успешно создано видео: {successful_videos}")
-    print(f"Ошибок: {failed_videos}")
-    print(f"Всего обработано: {len(jpg_files)}")
+    print(f"✅ Успешно создано видео: {successful_videos}")
+    print(f"❌ Ошибок: {failed_videos}")
+    print(f"⏭️  Пропущено (уже существует): {skipped_count}")
+    print(f"📊 Всего JPG файлов: {len(jpg_files)}")
+    print(f"💾 Всего видео в директории: {len(existing_videos) + successful_videos}")
     
     if successful_videos > 0:
         print(f"\nГотовые видео сохранены в: {output_dir}")

@@ -1,0 +1,23 @@
+WHISPER - РУКОВОДСТВО ПО ИСПОЛЬЗОВАНИЮ
+
+УСТАНОВЛЕННЫЕ МОДЕЛИ:
+- tiny (39 MB) - быстрая, базовое качество
+- small (26 MB) - хорошее качество  
+- medium (1.4 GB) - отличное качество для русского языка
+
+КОМАНДЫ:
+whisper audio.mp3 --model medium --language ru
+whisper audio.mp3 --model small --language ru
+whisper audio.mp3 --model tiny --language ru
+
+ФОРМАТЫ ВЫВОДА:
+--output_format txt    (простой текст)
+--output_format srt     (субтитры)
+--output_format vtt     (веб-субтитры)
+--output_format json    (JSON с временными метками)
+
+ПРИМЕРЫ:
+whisper audio.mp3 --model medium --language ru --output_format srt
+whisper audio.mp3 --model small --language ru --word_timestamps True
+
+РАСПОЛОЖЕНИЕ МОДЕЛЕЙ: ~/.cache/whisper/
