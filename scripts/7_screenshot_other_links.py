@@ -95,13 +95,90 @@ def save_screenshot_log(project_name: str, log_data: list) -> None:
             writer.writerow(data)
 
 
+def disable_interactive_elements(page) -> None:
+    """Отключает интерактивные элементы на странице перед скриншотом"""
+    disable_script = """
+    (function() {
+        // Отключаем все кнопки
+        document.querySelectorAll('button, input[type="button"], input[type="submit"]').forEach(el => {
+            el.style.pointerEvents = 'none';
+            el.style.opacity = '0.7';
+        });
+        
+        // Отключаем все ссылки
+        document.querySelectorAll('a').forEach(el => {
+            el.style.pointerEvents = 'none';
+            el.style.cursor = 'default';
+        });
+        
+        // Отключаем все формы
+        document.querySelectorAll('form').forEach(el => {
+            el.style.pointerEvents = 'none';
+        });
+        
+        // Останавливаем и скрываем все видео
+        document.querySelectorAll('video').forEach(el => {
+            el.pause();
+            el.style.pointerEvents = 'none';
+        });
+        
+        // Останавливаем и скрываем все аудио
+        document.querySelectorAll('audio').forEach(el => {
+            el.pause();
+            el.style.pointerEvents = 'none';
+        });
+        
+        // Отключаем iframe
+        document.querySelectorAll('iframe').forEach(el => {
+            el.style.pointerEvents = 'none';
+        });
+        
+        // Закрываем модальные окна
+        document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="dialog"]').forEach(el => {
+            el.style.display = 'none';
+        });
+        
+        // Отключаем анимации через CSS
+        const style = document.createElement('style');
+        style.textContent = `
+            *, *::before, *::after {
+                animation-duration: 0s !important;
+                animation-delay: 0s !important;
+                transition-duration: 0s !important;
+                transition-delay: 0s !important;
+            }
+        `;
+        document.head.appendChild(style);
+        
+        // Отключаем все интерактивные элементы через pointer-events
+        document.body.style.pointerEvents = 'auto';
+        document.querySelectorAll('*').forEach(el => {
+            const tag = el.tagName.toLowerCase();
+            if (['button', 'a', 'input', 'select', 'textarea', 'video', 'audio', 'iframe'].includes(tag)) {
+                el.style.pointerEvents = 'none';
+            }
+        });
+    })();
+    """
+    try:
+        page.evaluate(disable_script)
+    except Exception:
+        pass
+
+
 def take_screenshot(page, url: str, output_path: Path, timeout: int = 15000) -> tuple[bool, str]:
     """Делает скриншот страницы. Возвращает (успех, сообщение об ошибке)"""
     try:
         # Быстрая стратегия: просто ждем базовой загрузки DOM
         page.goto(url, wait_until='domcontentloaded', timeout=timeout)
         
-        # Минимальная пауза для рендеринга (0.5 сек вместо 2)
+        # Пауза для рендеринга (5 сек для медленного интернета)
+        time.sleep(5)
+        
+        # Отключаем интерактивные элементы перед скриншотом
+        disable_interactive_elements(page)
+        
+        # Небольшая пауза после отключения элементов
         time.sleep(0.5)
         
         # Делаем скриншот всей страницы
