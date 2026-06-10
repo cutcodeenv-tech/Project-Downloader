@@ -485,7 +485,8 @@ def enrich_channels(project_name: str):
         except Exception:
             return None
 
-    def get_channel_for_url(session, url, logger):
+    def get_channel_and_title_for_url(session, url, logger):
+        """Возвращает (channel, title) из YouTube oEmbed."""
         try:
             match = re.match(r"^https?://([^/]+)", url, flags=re.IGNORECASE)
             host = match.group(1).lower().replace("www.", "") if match else ""
@@ -494,24 +495,25 @@ def enrich_channels(project_name: str):
 
         if not host:
             logger.stats["empty_host"] += 1
-            return ""
+            return "", ""
         if "youtube.com" not in host and host != "youtu.be":
             logger.stats["unknown_host"] += 1
-            return ""
+            return "", ""
 
         try:
             oembed_url = "https://www.youtube.com/oembed?format=json&url=" + requests.utils.quote(url, safe="")
             payload = fetch_json(session, oembed_url)
             if payload and payload.get("author_name"):
                 channel = sanitize_channel_name(str(payload["author_name"]))
+                title = (payload.get("title") or "").strip()
                 logger.stats["youtube"]["success"] += 1
                 if channel:
                     logger.success(f"{url} -> {channel}")
-                return channel
+                return channel, title
             logger.stats["youtube"]["error"] += 1
         except Exception:
             pass
-        return ""
+        return "", ""
 
     def load_cache(cache_file):
         cache = {}
@@ -522,7 +524,10 @@ def enrich_channels(project_name: str):
                 for row in csv.DictReader(f):
                     url = row.get('url', '').strip()
                     if url:
-                        cache[url] = row.get('channel', '').strip()
+                        cache[url] = (
+                            row.get('channel', '').strip(),
+                            row.get('title', '').strip(),
+                        )
         except Exception:
             pass
         return cache
@@ -530,9 +535,9 @@ def enrich_channels(project_name: str):
     def save_cache(cache, cache_file):
         with open(cache_file, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(['url', 'channel'])
-            for url, channel in cache.items():
-                writer.writerow([url, channel])
+            writer.writerow(['url', 'channel', 'title'])
+            for url, (channel, title) in cache.items():
+                writer.writerow([url, channel, title])
 
     csv_file = os.path.join(database_dir, f'os_doc_{project_name}_youtube_links.csv')
     if not os.path.exists(csv_file):
@@ -561,16 +566,17 @@ def enrich_channels(project_name: str):
     cache = load_cache(cache_file)
     logger = Logger()
     session = requests.Session()
-    results: List[Tuple[str, str, str]] = []
+    results: List[Tuple[str, str, str, str]] = []  # (source_address, url, channel, title)
 
     for idx, (source_address, url) in enumerate(links, 1):
         if url in cache:
             logger.cache_hits += 1
-            results.append((source_address, url, cache[url]))
+            channel, title = cache[url]
+            results.append((source_address, url, channel, title))
             continue
-        channel = get_channel_for_url(session, url, logger)
-        cache[url] = channel
-        results.append((source_address, url, channel))
+        channel, title = get_channel_and_title_for_url(session, url, logger)
+        cache[url] = (channel, title)
+        results.append((source_address, url, channel, title))
         time.sleep(0.12)
 
     save_cache(cache, cache_file)
@@ -578,11 +584,11 @@ def enrich_channels(project_name: str):
     output_file = os.path.join(database_dir, f'os_doc_{project_name}_channels.csv')
     with open(output_file, 'w', newline='', encoding='utf-8') as f:
         writer = csv.writer(f)
-        writer.writerow(['source_address', 'url', 'channel'])
+        writer.writerow(['source_address', 'url', 'channel', 'title'])
         for row in results:
             writer.writerow(row)
 
-    found = sum(1 for _, _, ch in results if ch)
+    found = sum(1 for _, _, ch, _ in results if ch)
     print(f"Каналов найдено: {found}/{len(results)}")
     print(f"\n\033[32m=== Stage4. Done! Названия каналов записаны ===\033[0m")
 
@@ -756,29 +762,16 @@ def create_author_images(project_name: str):
         draw.text((50, 1080 - 50), source_text, fill=(255, 255, 255), font=font, anchor="ls")
         image.save(output_path, 'PNG')
 
-    VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi'}
+    def sanitize_filename(name: str) -> str:
+        """Убирает символы недопустимые в именах файлов."""
+        return re.sub(r'[<>:"/\\|?*]', '_', name).strip()
 
-    def build_renamed_map(project_dir: Path) -> Dict[str, str]:
-        """Возвращает {source_address: full_stem} из папки renamed_videos.
-        Например: {'B3_1': 'B3_1 Название видео'}.
-        """
-        renamed_dir = project_dir / 'renamed_videos'
-        mapping: Dict[str, str] = {}
-        if not renamed_dir.exists():
-            return mapping
-        for f in renamed_dir.iterdir():
-            if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS:
-                stem = f.stem  # e.g. "B3_1 Название видео"
-                # source_address — первый токен до пробела
-                src = stem.split(' ', 1)[0]
-                if src:
-                    mapping[src] = stem
-        return mapping
-
-    def make_output_name(source_address: str, renamed_map: Dict[str, str]) -> str:
-        """Имя файла PNG: '{full_stem}_author.png' если видео найдено, иначе '{source_address}_author.png'."""
-        stem = renamed_map.get(source_address, source_address)
-        return f"{stem}_author.png"
+    def make_output_name(source_address: str, title: str) -> str:
+        """Имя файла PNG: '{source_address} {title}_author.png' если title есть."""
+        if title:
+            safe_title = sanitize_filename(title)
+            return f"{source_address} {safe_title}_author.png"
+        return f"{source_address}_author.png"
 
     print(f"\n\033[32m=== Stage5. Start! Создание изображений с источниками ===\033[0m")
 
@@ -790,15 +783,16 @@ def create_author_images(project_name: str):
         print(f"Файл channels.csv не найден, Stage5 пропущен.")
         return
 
-    data: List[Tuple[str, str, str]] = []
+    data: List[Tuple[str, str, str, str]] = []  # (source_address, url, channel, title)
     try:
         with open(channels_csv, 'r', encoding='utf-8') as f:
             for row in csv.DictReader(f):
                 src = row.get('source_address', '').strip()
                 url = row.get('url', '').strip()
                 channel = row.get('channel', '').strip()
+                title = row.get('title', '').strip()
                 if src and url and not src.startswith('upd_'):
-                    data.append((src, url, channel))
+                    data.append((src, url, channel, title))
     except Exception as e:
         print(f"Ошибка при чтении channels.csv: {e}")
         return
@@ -809,14 +803,11 @@ def create_author_images(project_name: str):
 
     author_dir.mkdir(parents=True, exist_ok=True)
     font = load_font(GEOLOGICA_FONT_PATH, 30)
-    renamed_map = build_renamed_map(project_dir)
-    if renamed_map:
-        print(f"Найдено переименованных видео для привязки: {len(renamed_map)}")
 
     created = 0
     skipped = 0
-    for idx, (source_address, url, channel_name) in enumerate(data, 1):
-        output_name = make_output_name(source_address, renamed_map)
+    for idx, (source_address, url, channel_name, title) in enumerate(data, 1):
+        output_name = make_output_name(source_address, title)
         output_path = author_dir / output_name
 
         # Проверяем также старое имя (без title) — не пересоздаём если уже есть
