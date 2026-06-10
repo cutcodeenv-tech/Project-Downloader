@@ -756,10 +756,35 @@ def create_author_images(project_name: str):
         draw.text((50, 1080 - 50), source_text, fill=(255, 255, 255), font=font, anchor="ls")
         image.save(output_path, 'PNG')
 
+    VIDEO_EXTENSIONS = {'.mp4', '.mkv', '.webm', '.mov', '.m4v', '.avi'}
+
+    def build_renamed_map(project_dir: Path) -> Dict[str, str]:
+        """Возвращает {source_address: full_stem} из папки renamed_videos.
+        Например: {'B3_1': 'B3_1 Название видео'}.
+        """
+        renamed_dir = project_dir / 'renamed_videos'
+        mapping: Dict[str, str] = {}
+        if not renamed_dir.exists():
+            return mapping
+        for f in renamed_dir.iterdir():
+            if f.is_file() and f.suffix.lower() in VIDEO_EXTENSIONS:
+                stem = f.stem  # e.g. "B3_1 Название видео"
+                # source_address — первый токен до пробела
+                src = stem.split(' ', 1)[0]
+                if src:
+                    mapping[src] = stem
+        return mapping
+
+    def make_output_name(source_address: str, renamed_map: Dict[str, str]) -> str:
+        """Имя файла PNG: '{full_stem}_author.png' если видео найдено, иначе '{source_address}_author.png'."""
+        stem = renamed_map.get(source_address, source_address)
+        return f"{stem}_author.png"
+
     print(f"\n\033[32m=== Stage5. Start! Создание изображений с источниками ===\033[0m")
 
-    channels_csv = Path(DATA_DIR) / project_name / "database" / f"os_doc_{project_name}_channels.csv"
-    author_dir = Path(DATA_DIR) / project_name / "author"
+    project_dir = Path(DATA_DIR) / project_name
+    channels_csv = project_dir / "database" / f"os_doc_{project_name}_channels.csv"
+    author_dir = project_dir / "author"
 
     if not channels_csv.exists():
         print(f"Файл channels.csv не найден, Stage5 пропущен.")
@@ -784,12 +809,19 @@ def create_author_images(project_name: str):
 
     author_dir.mkdir(parents=True, exist_ok=True)
     font = load_font(GEOLOGICA_FONT_PATH, 30)
+    renamed_map = build_renamed_map(project_dir)
+    if renamed_map:
+        print(f"Найдено переименованных видео для привязки: {len(renamed_map)}")
 
     created = 0
     skipped = 0
     for idx, (source_address, url, channel_name) in enumerate(data, 1):
-        output_path = author_dir / f"{source_address}_author.png"
-        if output_path.exists():
+        output_name = make_output_name(source_address, renamed_map)
+        output_path = author_dir / output_name
+
+        # Проверяем также старое имя (без title) — не пересоздаём если уже есть
+        old_output_path = author_dir / f"{source_address}_author.png"
+        if output_path.exists() or (output_path != old_output_path and old_output_path.exists()):
             skipped += 1
             continue
         try:
