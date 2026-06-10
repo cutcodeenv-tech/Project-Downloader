@@ -106,7 +106,7 @@ def create_author_image(source_address: str, source_text: str, output_path: Path
     image = Image.new('RGBA', (width, height), color=(0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
-    font_size = 60
+    font_size = 30
     try:
         project_font_path = "/Users/theseus/Projects/osnovateli_doc_framework/assets/font/theater.bold-condensed.ttf"
         font = ImageFont.truetype(project_font_path, font_size)
