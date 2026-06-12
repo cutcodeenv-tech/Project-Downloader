@@ -269,6 +269,12 @@ def parse_links(project_name):
         raise gspread.exceptions.WorksheetNotFound("Не удалось определить рабочий лист.")
 
     def extract_spreadsheet_id_from_url():
+        # Non-interactive mode: read from env var (set by web UI)
+        env_url = os.getenv("SPREADSHEET_URL", "").strip()
+        if env_url:
+            m = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', env_url)
+            if m:
+                return env_url, m.group(1)
         while True:
             url = input("Введите ссылку на Google таблицу: ").strip()
             if not url:
@@ -466,54 +472,57 @@ def parse_links(project_name):
     print(f"\n\033[32m=== Stage2. Done! Ссылки успешно извлечены ===\033[0m")
 
 
+def _sanitize_channel_name(channel: str) -> str:
+    channel = (channel or "").strip()
+    if not channel or FORBIDDEN_SOURCE_URL in channel:
+        return ""
+    return channel
+
+
+def _fetch_json(session, url):
+    try:
+        response = session.get(url, headers=SESSION_HEADERS, timeout=REQUEST_TIMEOUT)
+        if response.status_code >= 400:
+            return None
+        return response.json()
+    except Exception:
+        return None
+
+
+def get_channel_and_title_for_url(session, url, logger):
+    """Возвращает (channel, title) из YouTube oEmbed."""
+    try:
+        match = re.match(r"^https?://([^/]+)", url, flags=re.IGNORECASE)
+        host = match.group(1).lower().replace("www.", "") if match else ""
+    except Exception:
+        host = ""
+
+    if not host:
+        logger.stats["empty_host"] += 1
+        return "", ""
+    if "youtube.com" not in host and host != "youtu.be":
+        logger.stats["unknown_host"] += 1
+        return "", ""
+
+    try:
+        oembed_url = "https://www.youtube.com/oembed?format=json&url=" + requests.utils.quote(url, safe="")
+        payload = _fetch_json(session, oembed_url)
+        if payload and payload.get("author_name"):
+            channel = _sanitize_channel_name(str(payload["author_name"]))
+            title = (payload.get("title") or "").strip()
+            logger.stats["youtube"]["success"] += 1
+            if channel:
+                logger.success(f"{url} -> {channel}")
+            return channel, title
+        logger.stats["youtube"]["error"] += 1
+    except Exception:
+        pass
+    return "", ""
+
+
 # Channel enrichment function
 def enrich_channels(project_name: str):
     database_dir = os.path.join(DATA_DIR, project_name, 'database')
-
-    def sanitize_channel_name(channel: str) -> str:
-        channel = (channel or "").strip()
-        if not channel or FORBIDDEN_SOURCE_URL in channel:
-            return ""
-        return channel
-
-    def fetch_json(session, url):
-        try:
-            response = session.get(url, headers=SESSION_HEADERS, timeout=REQUEST_TIMEOUT)
-            if response.status_code >= 400:
-                return None
-            return response.json()
-        except Exception:
-            return None
-
-    def get_channel_and_title_for_url(session, url, logger):
-        """Возвращает (channel, title) из YouTube oEmbed."""
-        try:
-            match = re.match(r"^https?://([^/]+)", url, flags=re.IGNORECASE)
-            host = match.group(1).lower().replace("www.", "") if match else ""
-        except Exception:
-            host = ""
-
-        if not host:
-            logger.stats["empty_host"] += 1
-            return "", ""
-        if "youtube.com" not in host and host != "youtu.be":
-            logger.stats["unknown_host"] += 1
-            return "", ""
-
-        try:
-            oembed_url = "https://www.youtube.com/oembed?format=json&url=" + requests.utils.quote(url, safe="")
-            payload = fetch_json(session, oembed_url)
-            if payload and payload.get("author_name"):
-                channel = sanitize_channel_name(str(payload["author_name"]))
-                title = (payload.get("title") or "").strip()
-                logger.stats["youtube"]["success"] += 1
-                if channel:
-                    logger.success(f"{url} -> {channel}")
-                return channel, title
-            logger.stats["youtube"]["error"] += 1
-        except Exception:
-            pass
-        return "", ""
 
     def load_cache(cache_file):
         cache = {}
@@ -1668,19 +1677,27 @@ def run_direct_video_download():
     ensure_core_dependencies()
     project_name = select_project_name()
 
-    print("\nВведите ссылки на видео (по одной, пустая строка — начать скачивание):")
+    # Non-interactive mode: read URLs from env var (set by web UI)
+    env_urls = os.getenv("VIDEO_URLS", "").strip()
     urls: List[str] = []
-    while True:
-        url = ask_text("  URL").strip()
-        if not url:
-            if urls:
-                break
-            continue
-        # Поддержка вставки нескольких ссылок через пробел/запятую
-        for part in re.split(r'[\s,]+', url):
-            part = part.strip()
-            if part.startswith('http'):
-                urls.append(part)
+    if env_urls:
+        for line in env_urls.splitlines():
+            line = line.strip()
+            if line.startswith("http"):
+                urls.append(line)
+    else:
+        print("\nВведите ссылки на видео (по одной, пустая строка — начать скачивание):")
+        while True:
+            url = ask_text("  URL").strip()
+            if not url:
+                if urls:
+                    break
+                continue
+            # Поддержка вставки нескольких ссылок через пробел/запятую
+            for part in re.split(r'[\s,]+', url):
+                part = part.strip()
+                if part.startswith('http'):
+                    urls.append(part)
 
     if not urls:
         print("Ссылки не указаны.")
@@ -1826,6 +1843,63 @@ def restart_with_preferred_python_if_needed():
     os.execve(preferred[0], preferred + [str(Path(__file__).resolve())], env)
 
 
+def _run_noninteractive(mode: str):
+    """Non-interactive entry point called via --run <mode> from the web UI.
+    All required values come from environment variables."""
+    if mode == "install":
+        install_all_dependencies()
+
+    elif mode == "install_ffmpeg":
+        install_ffmpeg()
+
+    elif mode == "new_project":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME env var is required for --run new_project")
+        image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
+        convert_videos = os.getenv("CONVERT_VIDEOS", "false").lower() in ("1", "true", "yes")
+        ensure_core_dependencies()
+        run_core_pipeline(project_name)
+        for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
+            run_script_task(task, project_name=project_name, image_mode=image_mode)
+        print("\n\033[32m=== Новый проект готов ===\033[0m")
+
+    elif mode == "edits":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME env var is required for --run edits")
+        image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
+        convert_videos = os.getenv("CONVERT_VIDEOS", "false").lower() in ("1", "true", "yes")
+        upd_key = datetime.now().strftime("upd_%Y-%m-%d")
+        ensure_core_dependencies()
+        os.environ["UPD_SUBDIR"] = upd_key
+        print(f"\n=== 1. Правки: {project_name} | волна: {upd_key} ===")
+        parse_links(project_name)
+        create_xml_placeholders(project_name)
+        enrich_channels(project_name)
+        create_author_images(project_name)
+        download_images(project_name)
+        for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
+            run_script_task(task, project_name=project_name, image_mode=image_mode)
+        os.environ.pop("UPD_SUBDIR", None)
+        print("\n\033[32m=== Правки завершены ===\033[0m")
+
+    elif mode == "direct_video":
+        ensure_core_dependencies()
+        run_direct_video_download()
+
+    else:
+        raise RuntimeError(f"Неизвестный режим: {mode}")
+
+
 if __name__ == "__main__":
+    import argparse as _argparse
+    _parser = _argparse.ArgumentParser(add_help=False)
+    _parser.add_argument("--run", default=None, metavar="MODE")
+    _args, _ = _parser.parse_known_args()
+
     restart_with_preferred_python_if_needed()
-    main_menu()
+    if _args.run:
+        _run_noninteractive(_args.run)
+    else:
+        main_menu()
