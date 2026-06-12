@@ -125,8 +125,13 @@ def main():
     
     # Пути к директориям и файлам
     base_path = "/Users/theseus/Projects/osnovateli_doc_framework/data"
-    input_dir = os.path.join(base_path, project_name, "smart_cropped_pictures")
-    output_dir = os.path.join(base_path, project_name, "photo_placeholder")
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+    base_input = os.path.join(base_path, project_name, "images_cropped")
+    base_output = os.path.join(base_path, project_name, "placeholders_photo")
+    input_dir = os.path.join(base_input, upd_subdir) if upd_subdir else base_input
+    output_dir = os.path.join(base_output, upd_subdir) if upd_subdir else base_output
+    if upd_subdir:
+        print(f"🌊 Волна правок: {upd_subdir}")
     scratches_path = "/Users/theseus/Projects/osnovateli_doc_framework/assets/scratches_add.mp4"
     alpha_mask_path = "/Users/theseus/Projects/osnovateli_doc_framework/assets/alpha_mask.mp4"
     

@@ -269,6 +269,12 @@ def parse_links(project_name):
         raise gspread.exceptions.WorksheetNotFound("Не удалось определить рабочий лист.")
 
     def extract_spreadsheet_id_from_url():
+        # Non-interactive mode: read from env var (set by web UI)
+        env_url = os.getenv("SPREADSHEET_URL", "").strip()
+        if env_url:
+            m = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', env_url)
+            if m:
+                return env_url, m.group(1)
         while True:
             url = input("Введите ссылку на Google таблицу: ").strip()
             if not url:
@@ -466,54 +472,57 @@ def parse_links(project_name):
     print(f"\n\033[32m=== Stage2. Done! Ссылки успешно извлечены ===\033[0m")
 
 
+def _sanitize_channel_name(channel: str) -> str:
+    channel = (channel or "").strip()
+    if not channel or FORBIDDEN_SOURCE_URL in channel:
+        return ""
+    return channel
+
+
+def _fetch_json(session, url):
+    try:
+        response = session.get(url, headers=SESSION_HEADERS, timeout=REQUEST_TIMEOUT)
+        if response.status_code >= 400:
+            return None
+        return response.json()
+    except Exception:
+        return None
+
+
+def get_channel_and_title_for_url(session, url, logger):
+    """Возвращает (channel, title) из YouTube oEmbed."""
+    try:
+        match = re.match(r"^https?://([^/]+)", url, flags=re.IGNORECASE)
+        host = match.group(1).lower().replace("www.", "") if match else ""
+    except Exception:
+        host = ""
+
+    if not host:
+        logger.stats["empty_host"] += 1
+        return "", ""
+    if "youtube.com" not in host and host != "youtu.be":
+        logger.stats["unknown_host"] += 1
+        return "", ""
+
+    try:
+        oembed_url = "https://www.youtube.com/oembed?format=json&url=" + requests.utils.quote(url, safe="")
+        payload = _fetch_json(session, oembed_url)
+        if payload and payload.get("author_name"):
+            channel = _sanitize_channel_name(str(payload["author_name"]))
+            title = (payload.get("title") or "").strip()
+            logger.stats["youtube"]["success"] += 1
+            if channel:
+                logger.success(f"{url} -> {channel}")
+            return channel, title
+        logger.stats["youtube"]["error"] += 1
+    except Exception:
+        pass
+    return "", ""
+
+
 # Channel enrichment function
 def enrich_channels(project_name: str):
     database_dir = os.path.join(DATA_DIR, project_name, 'database')
-
-    def sanitize_channel_name(channel: str) -> str:
-        channel = (channel or "").strip()
-        if not channel or FORBIDDEN_SOURCE_URL in channel:
-            return ""
-        return channel
-
-    def fetch_json(session, url):
-        try:
-            response = session.get(url, headers=SESSION_HEADERS, timeout=REQUEST_TIMEOUT)
-            if response.status_code >= 400:
-                return None
-            return response.json()
-        except Exception:
-            return None
-
-    def get_channel_and_title_for_url(session, url, logger):
-        """Возвращает (channel, title) из YouTube oEmbed."""
-        try:
-            match = re.match(r"^https?://([^/]+)", url, flags=re.IGNORECASE)
-            host = match.group(1).lower().replace("www.", "") if match else ""
-        except Exception:
-            host = ""
-
-        if not host:
-            logger.stats["empty_host"] += 1
-            return "", ""
-        if "youtube.com" not in host and host != "youtu.be":
-            logger.stats["unknown_host"] += 1
-            return "", ""
-
-        try:
-            oembed_url = "https://www.youtube.com/oembed?format=json&url=" + requests.utils.quote(url, safe="")
-            payload = fetch_json(session, oembed_url)
-            if payload and payload.get("author_name"):
-                channel = sanitize_channel_name(str(payload["author_name"]))
-                title = (payload.get("title") or "").strip()
-                logger.stats["youtube"]["success"] += 1
-                if channel:
-                    logger.success(f"{url} -> {channel}")
-                return channel, title
-            logger.stats["youtube"]["error"] += 1
-        except Exception:
-            pass
-        return "", ""
 
     def load_cache(cache_file):
         cache = {}
@@ -597,9 +606,11 @@ def enrich_channels(project_name: str):
 def create_xml_placeholders(project_name: str):
     import textwrap
 
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
     PROJECT_FONT_PATH = os.path.join(BASE_DIR, 'assets', 'font', 'theater.bold-condensed.ttf')
     database_dir = os.path.join(DATA_DIR, project_name, 'database')
-    placeholders_dir = os.path.join(DATA_DIR, project_name, 'xml_placeholders')
+    base_placeholders_dir = os.path.join(DATA_DIR, project_name, 'placeholders_xml')
+    placeholders_dir = os.path.join(base_placeholders_dir, upd_subdir) if upd_subdir else base_placeholders_dir
 
     print(f"\n\033[32m=== Stage3. Start! Создание XML-плейсхолдеров ===\033[0m")
 
@@ -639,16 +650,24 @@ def create_xml_placeholders(project_name: str):
                 pass
         return ImageFont.load_default()
 
-    def get_existing(out_dir):
+    def get_existing(base_dir):
         existing = set()
-        if not os.path.exists(out_dir):
+        if not os.path.exists(base_dir):
             return existing
-        for f in os.listdir(out_dir):
+        for f in os.listdir(base_dir):
             if f.endswith('.jpg'):
                 try:
                     existing.add(int(f.replace('.jpg', '')))
                 except ValueError:
                     pass
+            subpath = os.path.join(base_dir, f)
+            if os.path.isdir(subpath):
+                for fname in os.listdir(subpath):
+                    if fname.endswith('.jpg'):
+                        try:
+                            existing.add(int(fname.replace('.jpg', '')))
+                        except ValueError:
+                            pass
         return existing
 
     def create_image(col_a, col_b, col_c, col_d, row_number, output_path):
@@ -700,7 +719,7 @@ def create_xml_placeholders(project_name: str):
         return
 
     os.makedirs(placeholders_dir, exist_ok=True)
-    existing = get_existing(placeholders_dir)
+    existing = get_existing(base_placeholders_dir)
     created = 0
     skipped = 0
 
@@ -721,53 +740,68 @@ def create_xml_placeholders(project_name: str):
     print(f"\n\033[32m=== Stage3. Done! XML-плейсхолдеры созданы ===\033[0m")
 
 
-# Author image creation function
-def create_author_images(project_name: str):
-    GEOLOGICA_FONT_PATH = Path(BASE_DIR) / "assets" / "Design Preparation" / "FONT" / "Geologica" / "Geologica-VariableFont_CRSV,SHRP,slnt,wght.ttf"
-    SOURCE_CLARIFY_TEXT = "уточнить источник"
+_GEOLOGICA_FONT_PATH = Path(BASE_DIR) / "assets" / "Design Preparation" / "FONT" / "Geologica" / "Geologica-VariableFont_CRSV,SHRP,slnt,wght.ttf"
+_SOURCE_CLARIFY_TEXT = "уточнить источник"
 
-    def load_font(path: Path, size: int):
-        if path.exists():
-            try:
-                return ImageFont.truetype(str(path), size)
-            except Exception:
-                pass
-        for fallback in ["/System/Library/Fonts/Arial.ttf", "/System/Library/Fonts/Helvetica.ttc"]:
-            try:
-                return ImageFont.truetype(fallback, size)
-            except Exception:
-                pass
-        return ImageFont.load_default()
 
-    def needs_clarification(channel_name: str) -> bool:
-        if not channel_name:
-            return True
-        return FORBIDDEN_SOURCE_URL in channel_name
+def _load_author_font(size: int):
+    for path in [str(_GEOLOGICA_FONT_PATH), "/System/Library/Fonts/Arial.ttf", "/System/Library/Fonts/Helvetica.ttc"]:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            pass
+    return ImageFont.load_default()
 
-    def create_clarification_placeholder(output_path: Path):
-        image = Image.new('RGB', (1920, 1080), color='white')
-        draw = ImageDraw.Draw(image)
-        font = load_font(GEOLOGICA_FONT_PATH, 80)
-        bbox = draw.textbbox((0, 0), SOURCE_CLARIFY_TEXT, font=font)
+
+def _make_author_png(channel_name: str, output_path: Path):
+    """Создаёт PNG-плашку 1920×1080 с источником канала."""
+    if not channel_name or FORBIDDEN_SOURCE_URL in channel_name:
+        img = Image.new('RGB', (1920, 1080), color='white')
+        draw = ImageDraw.Draw(img)
+        font = _load_author_font(80)
+        bbox = draw.textbbox((0, 0), _SOURCE_CLARIFY_TEXT, font=font)
         x = (1920 - (bbox[2] - bbox[0])) // 2
         y = (1080 - (bbox[3] - bbox[1])) // 2
-        draw.text((x, y), SOURCE_CLARIFY_TEXT, fill=(0, 0, 0), font=font)
-        image.save(output_path, 'PNG')
-
-    def create_image(source_address: str, channel_name: str, output_path: Path, font):
+        draw.text((x, y), _SOURCE_CLARIFY_TEXT, fill=(0, 0, 0), font=font)
+        img.save(output_path, 'PNG')
+    else:
         normalized = re.sub(r'\s+', ' ', channel_name.strip())
         source_text = f"Источник: youtube-канал «{normalized}»"
-        image = Image.new('RGBA', (1920, 1080), color=(0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
+        font = _load_author_font(30)
+        img = Image.new('RGBA', (1920, 1080), color=(0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
         draw.text((50, 1080 - 50), source_text, fill=(255, 255, 255), font=font, anchor="ls")
-        image.save(output_path, 'PNG')
+        img.save(output_path, 'PNG')
+
+
+def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[str] = None) -> bool:
+    """Скачивает одно видео через pull-vids Docker в указанную папку."""
+    pull_vids_dir = SCRIPTS_DIR / "pull-vids"
+    if not pull_vids_dir.exists():
+        print(f"  ❌ pull-vids не найден: {pull_vids_dir}")
+        return False
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cmd = ['docker', 'compose', 'run', '--rm', '-v', f'{output_dir}:/downloads']
+    if cookies_file and Path(cookies_file).exists():
+        cmd += ['-v', f'{cookies_file}:/cookies.txt', 'pull-vids', '--cookies', '/cookies.txt', '-o', '/downloads', url]
+    else:
+        cmd += ['pull-vids', '-o', '/downloads', url]
+    result = subprocess.run(cmd, cwd=str(pull_vids_dir), stderr=subprocess.PIPE, text=True)
+    if result.returncode != 0:
+        if result.stderr:
+            for line in result.stderr.strip().splitlines()[-5:]:
+                print(f"  {line}")
+        return False
+    return True
+
+
+# Author image creation function
+def create_author_images(project_name: str):
 
     def sanitize_filename(name: str) -> str:
-        """Убирает символы недопустимые в именах файлов."""
         return re.sub(r'[<>:"/\\|?*]', '_', name).strip()
 
     def make_output_name(source_address: str, title: str) -> str:
-        """Имя файла PNG: '{source_address} {title}_author.png' если title есть."""
         if title:
             safe_title = sanitize_filename(title)
             return f"{source_address} {safe_title}_author.png"
@@ -775,9 +809,11 @@ def create_author_images(project_name: str):
 
     print(f"\n\033[32m=== Stage5. Start! Создание изображений с источниками ===\033[0m")
 
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
     project_dir = Path(DATA_DIR) / project_name
     channels_csv = project_dir / "database" / f"os_doc_{project_name}_channels.csv"
-    author_dir = project_dir / "author"
+    base_author_dir = project_dir / "author"
+    author_dir = base_author_dir / upd_subdir if upd_subdir else base_author_dir
 
     if not channels_csv.exists():
         print(f"Файл channels.csv не найден, Stage5 пропущен.")
@@ -802,24 +838,27 @@ def create_author_images(project_name: str):
         return
 
     author_dir.mkdir(parents=True, exist_ok=True)
-    font = load_font(GEOLOGICA_FONT_PATH, 30)
 
     created = 0
     skipped = 0
     for idx, (source_address, url, channel_name, title) in enumerate(data, 1):
         output_name = make_output_name(source_address, title)
         output_path = author_dir / output_name
-
-        # Проверяем также старое имя (без title) — не пересоздаём если уже есть
         old_output_path = author_dir / f"{source_address}_author.png"
-        if output_path.exists() or (output_path != old_output_path and old_output_path.exists()):
+
+        # В режиме правок дополнительно проверяем базовую папку
+        base_output_path = base_author_dir / output_name
+        base_old_output_path = base_author_dir / f"{source_address}_author.png"
+        already_exists = (
+            output_path.exists()
+            or (output_path != old_output_path and old_output_path.exists())
+            or (upd_subdir and (base_output_path.exists() or base_old_output_path.exists()))
+        )
+        if already_exists:
             skipped += 1
             continue
         try:
-            if needs_clarification(channel_name):
-                create_clarification_placeholder(output_path)
-            else:
-                create_image(source_address, channel_name, output_path, font)
+            _make_author_png(channel_name, output_path)
             created += 1
             print(f"[{idx}/{len(data)}] {source_address} -> {output_path.name}")
         except Exception as e:
@@ -955,13 +994,18 @@ def download_images(project_name: str):
         print(f"  Все 3 попытки неудачны: {last_exc}")
         return False
 
-    def get_existing_jpg(pictures_dir):
+    def get_existing_jpg(base_dir):
         existing = set()
-        if not os.path.exists(pictures_dir):
+        if not os.path.exists(base_dir):
             return existing
-        for f in os.listdir(pictures_dir):
+        for f in os.listdir(base_dir):
             if f.endswith('.jpg'):
                 existing.add(f.replace('.jpg', ''))
+            subpath = os.path.join(base_dir, f)
+            if os.path.isdir(subpath):
+                for fname in os.listdir(subpath):
+                    if fname.endswith('.jpg'):
+                        existing.add(fname.replace('.jpg', ''))
         return existing
 
     def error_placeholder(display_name, download_dir):
@@ -996,9 +1040,13 @@ def download_images(project_name: str):
 
     print(f"\n\033[32m=== Stage6. Start! Скачивание изображений ===\033[0m")
 
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
     project_dir = os.path.join(DATA_DIR, project_name)
     database_dir = os.path.join(project_dir, 'database')
-    pictures_dir = os.path.join(project_dir, 'pictures')
+    base_images_dir = os.path.join(project_dir, 'images')
+    pictures_dir = os.path.join(base_images_dir, upd_subdir) if upd_subdir else base_images_dir
+    if upd_subdir:
+        print(f"Волна правок: {upd_subdir}")
     csv_file = os.path.join(database_dir, f'os_doc_{project_name}_image_links.csv')
     error_csv = os.path.join(database_dir, f'os_doc_{project_name}_download_img_errors.csv')
 
@@ -1020,7 +1068,7 @@ def download_images(project_name: str):
         print("Нет ссылок на изображения.")
         return
 
-    existing = get_existing_jpg(pictures_dir)
+    existing = get_existing_jpg(base_images_dir)
     to_download = [L for L in links if L['display_name'] not in existing]
     if not to_download:
         print("Все изображения уже скачаны.")
@@ -1418,6 +1466,9 @@ def build_script_env(project_name=None, image_mode=None):
         env["PROJECT_NAME"] = project_name
     if image_mode:
         env["IMAGE_PROCESSING_MODE"] = image_mode
+    upd_subdir = os.getenv("UPD_SUBDIR", "")
+    if upd_subdir:
+        env["UPD_SUBDIR"] = upd_subdir
     return env
 
 
@@ -1467,32 +1518,72 @@ def tasks_for_all_run(image_mode, convert_videos=False):
     return selected
 
 
-def run_all_tasks():
+def run_new_project():
+    """Flow 0: новый проект — создаёт структуру и запускает полный пайплайн."""
+    ensure_core_dependencies()
     project_name = select_project_name()
     image_mode = select_image_processing_mode()
     convert_videos = ask_confirm("Конвертировать скачанные видео в MP4 после загрузки?")
 
-    print("\n=== План полного запуска ===")
+    print("\n=== 0. Новый проект ===")
     print(f"Проект: {project_name}")
     print(f"Режим картинок: {image_mode}")
-    print(f"Конвертация видео в MP4: {'да' if convert_videos else 'нет'}")
-    print(f"1. {CORE_PIPELINE_TITLE}")
-    for idx, task in enumerate(tasks_for_all_run(image_mode, convert_videos=convert_videos), 2):
-        print(f"{idx}. {task['script']} — {task['title']}")
+    print(f"Конвертация видео: {'да' if convert_videos else 'нет'}")
+    print(f"Шаги: структура → таблица → xml → авторы → картинки → видео → переименование → кроп → статьи")
 
-    if not ask_confirm("Запустить полный список?"):
-        print("Полный запуск отменен.")
+    if not ask_confirm("Запустить?"):
+        print("Отменено.")
         return
 
     run_core_pipeline(project_name)
     for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
         run_script_task(task, project_name=project_name, image_mode=image_mode)
 
-    print("\n\033[32m=== Все задачи завершены ===\033[0m")
+    print("\n\033[32m=== Новый проект готов ===\033[0m")
+
+
+def run_edits():
+    """Flow 1: правки — выбирает существующий проект, парсит новую CSV, запускает пайплайн."""
+    ensure_core_dependencies()
+    projects = list_existing_projects()
+    if not projects:
+        print("Нет существующих проектов. Используйте '0. Новый проект'.")
+        return
+
+    options = [(name, name) for name in projects]
+    project_name = select_option("Выберите проект для правок", options)
+    os.environ["PROJECT_NAME"] = project_name
+
+    image_mode = select_image_processing_mode()
+    convert_videos = ask_confirm("Конвертировать скачанные видео в MP4 после загрузки?")
+
+    upd_key = datetime.now().strftime("upd_%Y-%m-%d")
+    print(f"\n=== 1. Правки: {project_name} | волна: {upd_key} ===")
+    print("Шаги: новая таблица → xml → авторы → картинки → видео → переименование → кроп → статьи")
+    print(f"Файлы этой волны пойдут в подпапки {upd_key}/")
+
+    if not ask_confirm("Запустить?"):
+        print("Отменено.")
+        return
+
+    os.environ["UPD_SUBDIR"] = upd_key
+
+    # Структура уже создана — парсим новую CSV и обновляем только новые записи
+    parse_links(project_name)
+    create_xml_placeholders(project_name)
+    enrich_channels(project_name)
+    create_author_images(project_name)
+    download_images(project_name)
+
+    for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
+        run_script_task(task, project_name=project_name, image_mode=image_mode)
+
+    os.environ.pop("UPD_SUBDIR", None)
+    print("\n\033[32m=== Правки завершены ===\033[0m")
 
 
 def run_external_folder_crop_placeholder():
-    """Кроп под 16:9 + photo_placeholder для произвольной папки с фото."""
+    """Кроп под 16:9 + placeholders_photo для произвольной папки с фото."""
     input_path = ask_text("Путь к папке с исходными фотографиями: ").strip().strip('"').strip("'")
     if not input_path:
         print("Путь не указан, отмена.")
@@ -1502,7 +1593,7 @@ def run_external_folder_crop_placeholder():
         print(f"❌ Папка не найдена: {input_dir}")
         return
 
-    cropped_dir = input_dir.parent / "smart_cropped_pictures"
+    cropped_dir = input_dir.parent / "images_cropped"
 
     crop_script = SCRIPTS_DIR / "2.1_smart_cropping.py"
     placeholder_script = SCRIPTS_DIR / "5_photo_placeholders.py"
@@ -1514,7 +1605,7 @@ def run_external_folder_crop_placeholder():
 
     print(f"\n📥 Исходная папка:  {input_dir}")
     print(f"✂️  Кроп в папку:   {cropped_dir}")
-    print(f"🎬 Плейсхолдеры:   {cropped_dir.parent / 'photo_placeholder'}")
+    print(f"🎬 Плейсхолдеры:   {cropped_dir.parent / 'placeholders_photo'}")
 
     env = build_script_env()
 
@@ -1534,7 +1625,7 @@ def run_external_folder_crop_placeholder():
         continue_on_error=False,
     )
 
-    print(f"\n\033[32m=== Готово! Плейсхолдеры: {cropped_dir.parent / 'photo_placeholder'} ===\033[0m")
+    print(f"\n\033[32m=== Готово! Плейсхолдеры: {cropped_dir.parent / 'placeholders_photo'} ===\033[0m")
 
 
 def run_selected_task_menu():
@@ -1577,6 +1668,87 @@ def run_selected_task_menu():
             print(f"\n❌ Ошибка: {exc}")
 
 
+def run_direct_video_download():
+    """Режим 2: скачать видео по ссылкам + сразу сделать плашки с источником.
+
+    Каждый вызов создаёт папку video_direct/{YYYY-MM-DD_HH-MM-SS}/
+    Туда кладутся сами видео и PNG-плашки рядом.
+    """
+    ensure_core_dependencies()
+    project_name = select_project_name()
+
+    # Non-interactive mode: read URLs from env var (set by web UI)
+    env_urls = os.getenv("VIDEO_URLS", "").strip()
+    urls: List[str] = []
+    if env_urls:
+        for line in env_urls.splitlines():
+            line = line.strip()
+            if line.startswith("http"):
+                urls.append(line)
+    else:
+        print("\nВведите ссылки на видео (по одной, пустая строка — начать скачивание):")
+        while True:
+            url = ask_text("  URL").strip()
+            if not url:
+                if urls:
+                    break
+                continue
+            # Поддержка вставки нескольких ссылок через пробел/запятую
+            for part in re.split(r'[\s,]+', url):
+                part = part.strip()
+                if part.startswith('http'):
+                    urls.append(part)
+
+    if not urls:
+        print("Ссылки не указаны.")
+        return
+
+    session_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    project_dir = Path(DATA_DIR) / project_name
+    session_dir = project_dir / "video_direct" / session_ts
+    session_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n📁 Папка сессии: video_direct/{session_ts}/")
+    print(f"📊 Видео к скачиванию: {len(urls)}")
+
+    # Получаем метаданные каналов заранее (для плашек)
+    req_session = requests.Session()
+    logger = Logger()
+    print("\n🔍 Получаю информацию о каналах...")
+    url_meta: Dict[str, tuple] = {}
+    for url in urls:
+        channel, title = get_channel_and_title_for_url(req_session, url, logger)
+        url_meta[url] = (channel, title)
+        label = (title or url)[:60]
+        print(f"  {label} → {channel or '?'}")
+
+    cookies_file = str(BASE_DIR / "cookies.txt") if (BASE_DIR / "cookies.txt").exists() else None
+
+    print(f"\n=== Скачивание ===")
+    ok = fail = 0
+    for idx, url in enumerate(urls, 1):
+        channel, title = url_meta[url]
+        label = (title or url)[:60]
+        print(f"\n[{idx}/{len(urls)}] {label}")
+
+        if _download_video_direct(url, session_dir, cookies_file):
+            ok += 1
+            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title).strip() if title else f"video_{idx:02d}"
+            author_path = session_dir / f"{safe_title}_author.png"
+            try:
+                _make_author_png(channel, author_path)
+                print(f"  ✅ Скачано | плашка: {author_path.name}")
+            except Exception as e:
+                print(f"  ✅ Скачано | ❌ плашка не создана: {e}")
+        else:
+            fail += 1
+            print(f"  ❌ Ошибка скачивания")
+
+    print(f"\n{'='*50}")
+    print(f"Скачано: {ok}, ошибок: {fail}")
+    print(f"📁 {session_dir}")
+
+
 def main_menu():
     print("=== OSNOVATELI.DOC FRAMEWORK ===")
 
@@ -1586,15 +1758,21 @@ def main_menu():
                 "Главное меню",
                 [
                     ("Установить ВСЕ зависимости", "install"),
-                    ("Запустить все задачи", "run_all"),
+                    ("0. Новый проект", "new_project"),
+                    ("1. Правки проекта", "edits"),
+                    ("2. Скачать видео по ссылкам", "direct_video"),
                     ("Скрипты по очереди", "scripts"),
                     ("Выход", "exit"),
                 ],
             )
             if choice == "install":
                 install_all_dependencies()
-            elif choice == "run_all":
-                run_all_tasks()
+            elif choice == "new_project":
+                run_new_project()
+            elif choice == "edits":
+                run_edits()
+            elif choice == "direct_video":
+                run_direct_video_download()
             elif choice == "scripts":
                 run_selected_task_menu()
             elif choice == "exit":
@@ -1665,6 +1843,63 @@ def restart_with_preferred_python_if_needed():
     os.execve(preferred[0], preferred + [str(Path(__file__).resolve())], env)
 
 
+def _run_noninteractive(mode: str):
+    """Non-interactive entry point called via --run <mode> from the web UI.
+    All required values come from environment variables."""
+    if mode == "install":
+        install_all_dependencies()
+
+    elif mode == "install_ffmpeg":
+        install_ffmpeg()
+
+    elif mode == "new_project":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME env var is required for --run new_project")
+        image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
+        convert_videos = os.getenv("CONVERT_VIDEOS", "false").lower() in ("1", "true", "yes")
+        ensure_core_dependencies()
+        run_core_pipeline(project_name)
+        for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
+            run_script_task(task, project_name=project_name, image_mode=image_mode)
+        print("\n\033[32m=== Новый проект готов ===\033[0m")
+
+    elif mode == "edits":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME env var is required for --run edits")
+        image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
+        convert_videos = os.getenv("CONVERT_VIDEOS", "false").lower() in ("1", "true", "yes")
+        upd_key = datetime.now().strftime("upd_%Y-%m-%d")
+        ensure_core_dependencies()
+        os.environ["UPD_SUBDIR"] = upd_key
+        print(f"\n=== 1. Правки: {project_name} | волна: {upd_key} ===")
+        parse_links(project_name)
+        create_xml_placeholders(project_name)
+        enrich_channels(project_name)
+        create_author_images(project_name)
+        download_images(project_name)
+        for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
+            run_script_task(task, project_name=project_name, image_mode=image_mode)
+        os.environ.pop("UPD_SUBDIR", None)
+        print("\n\033[32m=== Правки завершены ===\033[0m")
+
+    elif mode == "direct_video":
+        ensure_core_dependencies()
+        run_direct_video_download()
+
+    else:
+        raise RuntimeError(f"Неизвестный режим: {mode}")
+
+
 if __name__ == "__main__":
+    import argparse as _argparse
+    _parser = _argparse.ArgumentParser(add_help=False)
+    _parser.add_argument("--run", default=None, metavar="MODE")
+    _args, _ = _parser.parse_known_args()
+
     restart_with_preferred_python_if_needed()
-    main_menu()
+    if _args.run:
+        _run_noninteractive(_args.run)
+    else:
+        main_menu()

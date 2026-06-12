@@ -426,7 +426,7 @@ def main():
         return
     
     # Создаем структуру директорий в проекте
-    pictures_dir = os.path.join(project_dir, 'pictures')
+    pictures_dir = os.path.join(project_dir, 'images')
     database_dir = os.path.join(project_dir, 'database')
     
     # Создаем директории

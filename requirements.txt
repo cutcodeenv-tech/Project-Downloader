@@ -9,4 +9,6 @@ yt-dlp
 pillow
 python-dotenv
 playwright
+flask>=3.0.0
+# rumps  # Опционально: иконка в трее на macOS
 # mediapipe>=0.10.5  # Опционально для улучшенной детекции (требуется Python 3.10+)

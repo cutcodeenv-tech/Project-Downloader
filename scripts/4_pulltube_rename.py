@@ -223,7 +223,9 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
         project_name = get_project_name()
     
     # Получаем пути к директориям проекта
-    video_dir = get_project_video_dir(project_name)
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+    base_video_dir = get_project_video_dir(project_name)
+    video_dir = base_video_dir / upd_subdir if upd_subdir else base_video_dir
     csv_file = get_youtube_links_csv_path(project_name)
     renamed_dir = get_renamed_videos_dir(project_name)
     
