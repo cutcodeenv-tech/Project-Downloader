@@ -37,8 +37,8 @@ def get_project_database_dir(project_name: str) -> Path:
 
 
 def get_project_screenshots_dir(project_name: str) -> Path:
-    """Возвращает путь к директории screenshots для указанного проекта"""
-    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "screenshots"
+    """Возвращает путь к директории articles для указанного проекта"""
+    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "articles"
 
 
 def get_other_links_csv_path(project_name: str) -> Path:
@@ -198,17 +198,22 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
     
     # Получаем пути
     csv_file = get_other_links_csv_path(project_name)
-    screenshots_dir = get_project_screenshots_dir(project_name)
-    
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+    base_screenshots_dir = get_project_screenshots_dir(project_name)
+    screenshots_dir = base_screenshots_dir / upd_subdir if upd_subdir else base_screenshots_dir
+
     print(f"CSV файл: {csv_file}")
-    print(f"Директория для скриншотов: {screenshots_dir}")
-    
+    if upd_subdir:
+        print(f"Волна правок: {upd_subdir} → {screenshots_dir}")
+    else:
+        print(f"Директория для скриншотов: {screenshots_dir}")
+
     # Проверяем существование CSV файла
     if not csv_file.exists():
         print(f"❌ CSV файл не найден: {csv_file}")
         print("Сначала запустите скрипт 1_parse_links.py")
         return
-    
+
     # Создаем директорию для скриншотов
     screenshots_dir.mkdir(parents=True, exist_ok=True)
     
@@ -265,9 +270,17 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
             # Формируем имя файла
             filename = f"{source_address}_screenshot.png"
             output_path = screenshots_dir / filename
-            
-            # Проверяем, не существует ли уже скриншот
-            if output_path.exists():
+
+            # Проверяем наличие в текущей папке и во всех волнах
+            already_exists = output_path.exists() or (
+                upd_subdir and (base_screenshots_dir / filename).exists()
+            )
+            if not already_exists and upd_subdir:
+                for item in base_screenshots_dir.iterdir():
+                    if item.is_dir() and (item / filename).exists():
+                        already_exists = True
+                        break
+            if already_exists:
                 print(f"  ⏭️  Уже есть")
                 continue
             

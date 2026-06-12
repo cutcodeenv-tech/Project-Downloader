@@ -603,12 +603,17 @@ def main():
     
     # Определяем пути
     base_dir = Path(__file__).parent.parent
-    pictures_dir = base_dir / 'data' / project_name / 'pictures'
-    output_dir = base_dir / 'data' / project_name / 'smart_cropped_pictures'
-    
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+    base_images = base_dir / 'data' / project_name / 'images'
+    base_cropped = base_dir / 'data' / project_name / 'images_cropped'
+    pictures_dir = base_images / upd_subdir if upd_subdir else base_images
+    output_dir = base_cropped / upd_subdir if upd_subdir else base_cropped
+
     print(f"\n📂 Проект: {project_name}")
+    if upd_subdir:
+        print(f"🌊 Волна правок: {upd_subdir}")
     print(f"📥 Исходная директория: {pictures_dir}")
-    
+
     # Проверяем существование директории с изображениями
     if not pictures_dir.exists():
         print(f"\n❌ Директория не найдена: {pictures_dir}")

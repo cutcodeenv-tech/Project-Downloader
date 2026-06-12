@@ -407,22 +407,37 @@ def main():
     print(f"✓ Найдено ссылок в pulltube_links.txt: {len(links)}")
     
     # Директория для сохранения видео
-    video_dir = os.path.join(project_dir, 'video')
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+    base_video_dir = os.path.join(project_dir, 'video')
+    video_dir = os.path.join(base_video_dir, upd_subdir) if upd_subdir else base_video_dir
     os.makedirs(video_dir, exist_ok=True)
-    print(f"📁 Директория для видео: {video_dir}")
-    
+    if upd_subdir:
+        print(f"📁 Волна правок: {upd_subdir} → {video_dir}")
+    else:
+        print(f"📁 Директория для видео: {video_dir}")
+
+    def check_video_exists_across_waves(base_dir, video_id):
+        if check_video_exists(base_dir, video_id):
+            return True
+        if os.path.exists(base_dir):
+            for item in os.listdir(base_dir):
+                subpath = os.path.join(base_dir, item)
+                if os.path.isdir(subpath) and check_video_exists(subpath, video_id):
+                    return True
+        return False
+
     # Проверяем уже скачанные видео
     existing_count = get_existing_videos_count(video_dir)
     if existing_count > 0:
         print(f"📦 Уже скачано видео: {existing_count}")
-    
-    # Фильтруем ссылки, пропуская уже скачанные
+
+    # Фильтруем ссылки, пропуская уже скачанные (проверяем все волны)
     links_to_download = []
     links_skipped = []
-    
+
     for url in links:
         video_id = extract_video_id(url)
-        if video_id and check_video_exists(video_dir, video_id):
+        if video_id and check_video_exists_across_waves(base_video_dir, video_id):
             links_skipped.append(url)
         else:
             links_to_download.append(url)

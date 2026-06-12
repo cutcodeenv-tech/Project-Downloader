@@ -2,26 +2,40 @@
 # Каждая строка - название папки для создания
 # Строки, начинающиеся с # - комментарии
 
-chapters
-integrations
+# --- База данных ---
+database
+
+# --- 1. Скачивание ---
+images
+video
+video_motionarray
+video_direct
+
+# --- 2. Конвертация и кроп ---
+images_cropped
+placeholders_photo
+placeholders_xml
+placeholders_typewriter
+placeholders_screenshots
+
+# --- 3. Статьи и скриншоты ---
+articles
+articles_fullscreen
+
+# --- 4. Автор ---
+author
+
+# --- Продакшн ---
+voiceover
 mogrt
 output
-photo_placeholder
-pictures
-screenshots
-screenshots_placeholder
 stock
-temp
-typewriter_placeholder
-video
-voiceover
-xml_placeholders
-database
-smart_cropped_pictures
+chapters
+integrations
+
+# --- Служебные ---
 manual_addons
 backup
 edit
-upd 
-motionarray 
-fullscreen_screenshots
-author
+upd
+temp

@@ -26,8 +26,8 @@ def get_project_name():
 
 
 def get_project_motionarray_dir(project_name: str) -> Path:
-    """Возвращает путь к директории motionarray для указанного проекта"""
-    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "motionarray"
+    """Возвращает путь к директории video_motionarray для указанного проекта"""
+    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "video_motionarray"
 
 
 def get_project_database_dir(project_name: str) -> Path:
@@ -222,7 +222,9 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
         project_name = get_project_name()
     
     # Получаем пути к директориям проекта
-    motionarray_dir = get_project_motionarray_dir(project_name)
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+    base_motionarray_dir = get_project_motionarray_dir(project_name)
+    motionarray_dir = base_motionarray_dir / upd_subdir if upd_subdir else base_motionarray_dir
     csv_file = get_motionarray_links_csv_path(project_name)
     renamed_dir = get_renamed_videos_dir(project_name)
     

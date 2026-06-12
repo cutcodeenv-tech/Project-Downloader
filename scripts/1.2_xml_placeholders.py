@@ -319,7 +319,7 @@ def main():
         return
     
     # Создаем структуру директорий в проекте
-    placeholders_dir = os.path.join(project_dir, 'xml_placeholders')
+    placeholders_dir = os.path.join(project_dir, 'placeholders_xml')
     
     # Создаем директории
     os.makedirs(placeholders_dir, exist_ok=True)
