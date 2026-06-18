@@ -843,6 +843,16 @@
     if (name === 'log') requestAnimationFrame(() => preserveLogPosition());
   }
 
+  function escHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[ch]));
+  }
+
   function selectProject(name) {
     selProject = name;
     document.querySelectorAll('.pi').forEach(el => el.classList.toggle('active', el.dataset.name === name));
@@ -867,6 +877,7 @@
       if(!e) return;
       if(e.tagName === 'SELECT') e.value = sel.value;
     });
+    loadProjectState(sel.value);
   }
 
   function setMode(prefix, mode) {
@@ -1051,12 +1062,15 @@
           const paused = p.status === 'paused';
           const badge = paused ? `<span class="paused-badge">пауза</span>` : '';
           const resumeBtn = paused
-            ? `<button class="resume-btn" onclick="event.stopPropagation();resumeProject('${p.name}')">▶ Продолжить</button>`
+            ? `<button class="resume-btn" onclick="event.stopPropagation();resumeProject(this.closest('.pi').dataset.name)">▶ Продолжить</button>`
             : '';
-          return `<div class="pi" data-name="${p.name}" onclick="selectProject('${p.name}')">
+          const spreadsheetBadge = p.has_spreadsheet ? '<div style="font-size:10px;color:var(--green);margin-top:2px">таблица закреплена</div>' : '';
+          const safeName = escHtml(p.name);
+          return `<div class="pi" data-name="${safeName}" onclick="selectProject(this.dataset.name)">
             <div class="dot"></div>
             <div style="flex:1;min-width:0">
-              <div>${p.name}${badge}</div>
+              <div>${safeName}${badge}</div>
+              ${spreadsheetBadge}
               ${resumeBtn}
             </div>
           </div>`;
@@ -1065,7 +1079,7 @@
     ['ed-project','dv-project','sc-project','ph-project'].forEach(id=>{
       const s=document.getElementById(id); if(!s) return;
       const cur=s.value;
-      s.innerHTML='<option value="">— выберите проект —</option>'+projects.map(p=>`<option value="${p.name}"${p.name===cur?' selected':''}>${p.name}</option>`).join('');
+      s.innerHTML='<option value="">— выберите проект —</option>'+projects.map(p=>`<option value="${escHtml(p.name)}"${p.name===cur?' selected':''}>${escHtml(p.name)}</option>`).join('');
     });
   }
 
@@ -1156,6 +1170,13 @@
     const running = steps.filter(s => s.status === 'running').length;
     const paused = r.status === 'paused';
     const pending = (r.pending_steps || []).length;
+    const spreadsheetUrl = r.spreadsheet_url || '';
+    const edSheets = document.getElementById('ed-sheets');
+    if(edSheets) edSheets.value = spreadsheetUrl;
+    const npSheets = document.getElementById('np-sheets');
+    if(npSheets && spreadsheetUrl && document.getElementById('np-project')?.value === projectName) {
+      npSheets.value = spreadsheetUrl;
+    }
     const statusLabel = paused
       ? `<span class="paused-badge">⏸ пауза · осталось ${pending} шагов</span>`
       : (r.status || 'new');
@@ -1165,6 +1186,7 @@
     box.innerHTML = `
       <div><strong>${r.project_name || projectName}</strong> ${statusLabel}</div>
       <div style="opacity:.8">готово ${done} · ошибок ${failed}${running?' · выполняется '+running:''}</div>
+      <div style="opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">таблица: ${spreadsheetUrl ? escHtml(spreadsheetUrl) : 'не закреплена'}</div>
       <div style="opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px">${r.project_path || ''}</div>
       ${resumeHtml}
     `;

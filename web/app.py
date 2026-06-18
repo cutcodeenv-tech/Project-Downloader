@@ -31,7 +31,7 @@ from photo_placeholder_ops import (
     find_source_image,
     is_realesrgan_installed,
 )
-from path_utils import list_projects as scan_projects, ensure_project_marker, is_project_dir, read_project_marker
+from path_utils import list_projects as scan_projects, ensure_project_marker, is_project_dir, read_project_marker, write_project_marker
 
 try:
     from flask import Flask, jsonify, render_template, request, Response, stream_with_context, send_file, abort
@@ -102,6 +102,60 @@ def _ensure_project(project_name: str, projects_root: Path | None = None) -> dic
         base_dir=Path(_settings["base_dir"]).expanduser().resolve(),
         projects_root=root,
     )
+
+
+def _spreadsheet_id_from_url(url: str) -> str:
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", url or "")
+    return match.group(1) if match else ""
+
+
+def _attach_project_spreadsheet(
+    project_name: str,
+    spreadsheet_url: str,
+    *,
+    projects_root: Path | None = None,
+    mode: str = "new_project",
+) -> tuple[dict | None, str | None]:
+    spreadsheet_url = (spreadsheet_url or "").strip()
+    if not spreadsheet_url:
+        return _ensure_project(project_name, projects_root), None
+    spreadsheet_id = _spreadsheet_id_from_url(spreadsheet_url)
+    if not spreadsheet_id:
+        return None, "Не удалось извлечь ID Google таблицы из ссылки"
+
+    root = (projects_root or _data_dir()).expanduser().resolve()
+    project_dir = root / project_name
+    marker = ensure_project_marker(
+        project_dir,
+        project_name=project_name,
+        base_dir=Path(_settings["base_dir"]).expanduser().resolve(),
+        projects_root=root,
+    )
+    existing_url = (marker.get("spreadsheet_url") or "").strip()
+    existing_id = (marker.get("spreadsheet_id") or "").strip()
+    if mode == "new_project" and existing_url and existing_id and existing_id != spreadsheet_id:
+        return None, "У проекта уже закреплена таблица. Новую ссылку добавляйте через вкладку «Правки проекта»."
+
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    history = list(marker.get("spreadsheet_history") or [])
+    if not history or (history[-1].get("spreadsheet_id") != spreadsheet_id or history[-1].get("mode") != mode):
+        history.append({
+            "spreadsheet_url": spreadsheet_url,
+            "spreadsheet_id": spreadsheet_id,
+            "mode": mode,
+            "attached_at": now,
+        })
+    marker.update({
+        "spreadsheet_url": spreadsheet_url,
+        "spreadsheet_id": spreadsheet_id,
+        "spreadsheet_attached_at": marker.get("spreadsheet_attached_at") or now,
+        "last_spreadsheet_url": spreadsheet_url,
+        "last_spreadsheet_id": spreadsheet_id,
+        "last_spreadsheet_mode": mode,
+        "last_spreadsheet_updated_at": now,
+        "spreadsheet_history": history[-20:],
+    })
+    return write_project_marker(project_dir, marker), None
 
 
 def _choose_folder_dialog(initial_path: Path | None = None, prompt: str = "Выберите папку") -> str | None:
@@ -761,12 +815,19 @@ def api_run_new_project():
         return jsonify({"error": "Укажите название проекта"}), 400
     if not selected_steps:
         return jsonify({"error": "Выберите хотя бы один шаг"}), 400
-    if "stage_parse_links" in selected_steps and not sheets_url:
-        return jsonify({"error": "Укажите ссылку на Google таблицу"}), 400
     projects_root = Path(projects_root_raw).expanduser().resolve()
     projects_root.mkdir(parents=True, exist_ok=True)
     _settings["projects_root"] = str(projects_root)
-    _ensure_project(pname, projects_root)
+    marker = _ensure_project(pname, projects_root)
+    if sheets_url:
+        marker, attach_error = _attach_project_spreadsheet(pname, sheets_url, projects_root=projects_root, mode="new_project")
+        if attach_error:
+            return jsonify({"error": attach_error}), 400
+    if "stage_parse_links" in selected_steps:
+        if not sheets_url:
+            sheets_url = (marker.get("spreadsheet_url") or "").strip()
+        if not sheets_url:
+            return jsonify({"error": "Укажите ссылку на Google таблицу"}), 400
     env = _build_env(project_name=pname, image_processing_mode=image_mode,
                      spreadsheet_url=sheets_url, video_quality=video_quality)
     env["FLOW_SELECTION_JSON"] = json.dumps(selected_steps, ensure_ascii=False)
@@ -788,8 +849,16 @@ def api_run_edits():
         return jsonify({"error": "Укажите название проекта"}), 400
     if not selected_steps:
         return jsonify({"error": "Выберите хотя бы один шаг"}), 400
-    if "stage_parse_links" in selected_steps and not sheets_url:
-        return jsonify({"error": "Укажите ссылку на Google таблицу"}), 400
+    marker = _ensure_project(pname)
+    if sheets_url:
+        marker, attach_error = _attach_project_spreadsheet(pname, sheets_url, mode="edits")
+        if attach_error:
+            return jsonify({"error": attach_error}), 400
+    if "stage_parse_links" in selected_steps:
+        if not sheets_url:
+            sheets_url = (marker.get("spreadsheet_url") or "").strip()
+        if not sheets_url:
+            return jsonify({"error": "Укажите ссылку на Google таблицу"}), 400
     env = _build_env(project_name=pname, image_processing_mode=image_mode,
                      spreadsheet_url=sheets_url, video_quality=video_quality)
     env["FLOW_SELECTION_JSON"] = json.dumps(selected_steps, ensure_ascii=False)
@@ -830,8 +899,15 @@ def api_run_stage():
         return jsonify({"error": f"Неизвестная стадия: {run_mode}"}), 400
     if stage.get("needs_project") and not pname:
         return jsonify({"error": "Укажите проект"}), 400
-    if stage.get("needs_sheets") and not sheets_url:
-        return jsonify({"error": "Укажите ссылку на Google таблицу"}), 400
+    if stage.get("needs_sheets"):
+        marker = _ensure_project(pname)
+        if not sheets_url:
+            sheets_url = (marker.get("spreadsheet_url") or "").strip()
+        if not sheets_url:
+            return jsonify({"error": "Укажите ссылку на Google таблицу"}), 400
+        marker, attach_error = _attach_project_spreadsheet(pname, sheets_url, mode="edits")
+        if attach_error:
+            return jsonify({"error": attach_error}), 400
 
     env = _build_env(project_name=pname, image_processing_mode=image_mode,
                      spreadsheet_url=sheets_url if sheets_url else None)

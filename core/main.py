@@ -185,6 +185,38 @@ def update_project_state(project_name: str, mutate) -> dict:
     return write_project_marker(project_dir, state)
 
 
+def attach_project_spreadsheet(project_name: str, spreadsheet_url: str, spreadsheet_id: str, mode: str) -> dict:
+    spreadsheet_url = (spreadsheet_url or "").strip()
+    spreadsheet_id = (spreadsheet_id or "").strip()
+    mode = (mode or "stage_parse_links").strip()
+    now = datetime.now().isoformat(timespec="seconds")
+
+    def mutate(state):
+        history = list(state.get("spreadsheet_history") or [])
+        if not history or (
+            history[-1].get("spreadsheet_id") != spreadsheet_id
+            or history[-1].get("mode") != mode
+        ):
+            history.append({
+                "spreadsheet_url": spreadsheet_url,
+                "spreadsheet_id": spreadsheet_id,
+                "mode": mode,
+                "attached_at": now,
+            })
+        state.update({
+            "spreadsheet_url": spreadsheet_url,
+            "spreadsheet_id": spreadsheet_id,
+            "spreadsheet_attached_at": state.get("spreadsheet_attached_at") or now,
+            "last_spreadsheet_url": spreadsheet_url,
+            "last_spreadsheet_id": spreadsheet_id,
+            "last_spreadsheet_mode": mode,
+            "last_spreadsheet_updated_at": now,
+            "spreadsheet_history": history[-20:],
+        })
+
+    return update_project_state(project_name, mutate)
+
+
 def create_structure():
     def resolve_project_name():
         env_name = os.getenv("PROJECT_NAME", "").strip()
@@ -547,6 +579,7 @@ def parse_links(project_name):
     print(f"Проект: {project_name}")
 
     spreadsheet_url, spreadsheet_id = extract_spreadsheet_id_from_url()
+    attach_project_spreadsheet(project_name, spreadsheet_url, spreadsheet_id, os.getenv("FLOW_NAME", "stage_parse_links"))
     is_reparse = check_if_reparse(spreadsheet_url)
 
     if is_reparse:
@@ -2017,6 +2050,7 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
         raise RuntimeError("Не выбран ни один шаг для выполнения.")
 
     os.environ["PROJECT_NAME"] = project_name
+    os.environ["FLOW_NAME"] = flow_name
     init_project_state(project_name)
     update_project_state(project_name, lambda state: state.update({
         "status": "running",
