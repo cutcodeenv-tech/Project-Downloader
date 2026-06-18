@@ -1,0 +1,13 @@
+services:
+  osnov-core:
+    build: .
+    container_name: osnov-core
+    stdin_open: true
+    tty: true
+    environment:
+      BASE_DIR: /workspace
+    volumes:
+      - ../data:/workspace/data
+      - ../default_project_structure.txt:/workspace/default_project_structure.txt:ro
+      - ../.env:/workspace/.env:ro
+      - ../assets:/workspace/assets:ro

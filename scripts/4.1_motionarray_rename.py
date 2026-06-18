@@ -16,6 +16,10 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 
+from path_utils import get_data_dir
+_DATA_DIR = get_data_dir(__file__)
+
+
 def get_project_name():
     """Запрашивает у пользователя название проекта"""
     while True:
@@ -26,23 +30,19 @@ def get_project_name():
 
 
 def get_project_motionarray_dir(project_name: str) -> Path:
-    """Возвращает путь к директории video_motionarray для указанного проекта"""
-    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "video_motionarray"
+    return _DATA_DIR / project_name / "video_motionarray"
 
 
 def get_project_database_dir(project_name: str) -> Path:
-    """Возвращает путь к директории database для указанного проекта"""
-    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "database"
+    return _DATA_DIR / project_name / "database"
 
 
 def get_motionarray_links_csv_path(project_name: str) -> Path:
-    """Возвращает путь к CSV файлу с MotionArray ссылками для указанного проекта"""
-    return get_project_database_dir(project_name) / f"osnovateli_doc_{project_name}_motionarray_links.csv"
+    return get_project_database_dir(project_name) / f"os_doc_{project_name}_motionarray_links.csv"
 
 
 def get_renamed_videos_dir(project_name: str) -> Path:
-    """Возвращает путь к директории для переименованных видео"""
-    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "renamed_videos"
+    return _DATA_DIR / project_name / "renamed_videos"
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}
@@ -50,11 +50,11 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}
 
 def read_links_from_csv(file_path: Path) -> List[Tuple[str, str]]:
     """Читает ссылки из CSV файла проекта.
-    
+
     Ожидаемый формат CSV:
     source_address,url
     B3_1,https://motionarray.com/stock-video/...
-    
+
     Возвращает список кортежей: (source_address, url)
     """
     if not file_path.exists():
@@ -67,7 +67,7 @@ def read_links_from_csv(file_path: Path) -> List[Tuple[str, str]]:
             for row_num, row in enumerate(reader, start=2):  # начинаем с 2, так как строка 1 - заголовок
                 source_address = row.get('source_address', '').strip()
                 url = row.get('url', '').strip()
-                
+
                 # Пропускаем строки upd_ и пустые
                 if source_address and url and not source_address.startswith('upd_'):
                     pairs.append((source_address, url))
@@ -78,7 +78,7 @@ def read_links_from_csv(file_path: Path) -> List[Tuple[str, str]]:
     except Exception as e:
         print(f"Ошибка при чтении CSV файла: {e}", file=sys.stderr)
         raise
-    
+
     return pairs
 
 
@@ -100,11 +100,11 @@ def normalize_text_for_match(text: str) -> str:
 
 def extract_motionarray_title_from_url(url: str) -> Optional[str]:
     """Извлекает название видео из URL MotionArray.
-    
+
     Примеры:
     https://motionarray.com/stock-video/man-counting-us-dollar-bills-1343142/
     -> "man counting us dollar bills"
-    
+
     https://motionarray.com/stock-video/businessman-is-counting-cash-1299253/
     -> "businessman is counting cash"
     """
@@ -112,34 +112,34 @@ def extract_motionarray_title_from_url(url: str) -> Optional[str]:
         # Парсим URL
         parsed = urlparse(url)
         path = parsed.path
-        
+
         # Удаляем начальный и конечный слэш
         path = path.strip('/')
-        
+
         # Разбиваем путь на части
         parts = path.split('/')
-        
+
         # Для MotionArray URL формата: /stock-video/название-видео-1234567/
         # Нам нужна предпоследняя часть
         if len(parts) >= 2 and parts[0] == 'stock-video':
             title_part = parts[1]
-            
+
             # Удаляем номер в конце (обычно формат: название-1234567)
             # Находим последний дефис с цифрами
             title_without_id = re.sub(r'-\d+$', '', title_part)
-            
+
             # Заменяем дефисы на пробелы
             title = title_without_id.replace('-', ' ')
-            
+
             # Очищаем и форматируем
             title = title.strip()
-            
+
             if title:
                 return title
-        
+
         print(f"⚠️  Не удалось распарсить URL: {url}", file=sys.stderr)
         return None
-        
+
     except Exception as e:
         print(f"Ошибка при извлечении названия из URL: {e}", file=sys.stderr)
         return None
@@ -149,7 +149,7 @@ def collect_video_files(directory: Path) -> List[Path]:
     """Собирает все видеофайлы из указанной директории"""
     if not directory.exists():
         raise FileNotFoundError(f"Директория с видео не найдена: {directory}")
-    
+
     files: List[Path] = []
     for p in directory.iterdir():
         if p.is_file() and p.suffix.lower() in VIDEO_EXTENSIONS:
@@ -182,19 +182,19 @@ def save_rename_log(project_name: str, rename_data: List[Dict]) -> None:
     """Сохраняет лог переименований в CSV файл"""
     database_dir = get_project_database_dir(project_name)
     log_file = database_dir / f"osnovateli_doc_{project_name}_motionarray_rename_log.csv"
-    
+
     # Создаем директорию если не существует
     database_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Определяем, нужно ли писать заголовки
     file_exists = log_file.exists()
-    
+
     with log_file.open("a", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=['timestamp', 'source_address', 'original_filename', 'new_filename', 'motionarray_url', 'motionarray_title', 'status'])
-        
+
         if not file_exists:
             writer.writeheader()
-        
+
         for data in rename_data:
             writer.writerow(data)
 
@@ -202,14 +202,14 @@ def save_rename_log(project_name: str, rename_data: List[Dict]) -> None:
 def move_and_rename_file(source_file: Path, target_dir: Path, new_name: str, dry_run: bool = False) -> Optional[Path]:
     """Перемещает файл в целевую директорию с новым именем"""
     target_file = target_dir / new_name
-    
+
     if dry_run:
         print(f"DRY-RUN: {source_file.name} -> {new_name}")
         return target_file
-    
+
     # Создаем целевую директорию если не существует
     target_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Перемещаем файл
     shutil.move(str(source_file), str(target_file))
     print(f"OK: {source_file.name} -> {new_name}")
@@ -219,15 +219,24 @@ def move_and_rename_file(source_file: Path, target_dir: Path, new_name: str, dry
 def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
     """Основная функция обработки видео"""
     if project_name is None:
-        project_name = get_project_name()
-    
+        project_name = os.getenv("PROJECT_NAME", "").strip() or get_project_name()
+
     # Получаем пути к директориям проекта
     upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
     base_motionarray_dir = get_project_motionarray_dir(project_name)
     motionarray_dir = base_motionarray_dir / upd_subdir if upd_subdir else base_motionarray_dir
     csv_file = get_motionarray_links_csv_path(project_name)
     renamed_dir = get_renamed_videos_dir(project_name)
-    
+
+    # Если нет CSV или нет папки с видео — просто пропускаем
+    if not csv_file.exists():
+        print("⏭️  MotionArray CSV не найден — пропускаем.")
+        return
+
+    if not motionarray_dir.exists():
+        print("⏭️  Папка video_motionarray не найдена — пропускаем.")
+        return
+
     print(f"\n=== ПЕРЕМЕЩЕНИЕ И ПЕРЕИМЕНОВАНИЕ ВИДЕО ИЗ MOTIONARRAY ===")
     print(f"Проект: {project_name}")
     print(f"Директория с видео: {motionarray_dir}")
@@ -237,17 +246,6 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
         print("Режим: DRY-RUN (только показ плана переименований)")
     else:
         print("⚠️  ВНИМАНИЕ: Файлы будут ПЕРЕМЕЩЕНЫ (не скопированы)!")
-
-    # Проверяем существование необходимых файлов и директорий
-    if not csv_file.exists():
-        print(f"❌ CSV файл не найден: {csv_file}")
-        print("Сначала запустите скрипт 1_parse_links.py для создания CSV файла с ссылками.")
-        return
-    
-    if not motionarray_dir.exists():
-        print(f"❌ Директория с видео не найдена: {motionarray_dir}")
-        print("Убедитесь, что видеофайлы находятся в правильной директории.")
-        return
 
     # Читаем ссылки из CSV
     try:
@@ -267,7 +265,7 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
         print("CSV файл пуст или не содержит корректных ссылок.")
         return
     if not files:
-        print("В директории с видео не найдено файлов подходящих расширений.")
+        print("⏭️  Видео MotionArray не найдено — пропускаем.")
         return
 
     print(f"\n📊 Найдено ссылок в CSV: {len(pairs)}")
@@ -281,7 +279,7 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
     # Обрабатываем каждую ссылку
     for source_address, url in pairs:
         print(f"\n🔍 Обрабатываю: {source_address} -> {url}")
-        
+
         # Извлекаем название из URL MotionArray
         title = extract_motionarray_title_from_url(url)
         if not title:
@@ -325,7 +323,7 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
 
         # Создаем новое имя файла
         new_name = f"{source_address} {match.name}"
-        
+
         # Проверяем, не существует ли уже файл с таким именем
         target_file = renamed_dir / new_name
         if target_file.exists():
@@ -346,7 +344,7 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
                     'status': 'SUCCESS'
                 })
                 successful_renames += 1
-                
+
                 # Удаляем файл из списка, чтобы избежать повторного использования
                 files.remove(match)
         except Exception as e:
@@ -372,7 +370,7 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
     print(f"✅ Успешно перемещено и переименовано: {successful_renames}")
     print(f"❌ Ошибок: {failed_renames}")
     print(f"📁 Переименованные видео перемещены в: {renamed_dir}")
-    
+
     if not dry_run and successful_renames > 0:
         print(f"\n🎉 Перемещение и переименование завершено! Проверьте директорию: {renamed_dir}")
         print(f"💾 Исходные файлы перемещены из: {motionarray_dir}")
@@ -404,4 +402,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -11,6 +11,7 @@ import subprocess
 import traceback
 import textwrap
 import urllib.parse
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime
@@ -50,6 +51,11 @@ except ImportError:
     questionary = None
     Choice = None
 
+try:
+    import yt_dlp
+except ImportError:
+    yt_dlp = None
+
 
 FORBIDDEN_SOURCE_URL = "https://www.youtube.com/@osnovatelidoc"
 REQUEST_TIMEOUT = 20
@@ -61,6 +67,24 @@ SESSION_HEADERS = {
     ),
     "Accept": "text/html,application/json;q=0.9,*/*;q=0.8",
 }
+DEFAULT_VIDEO_DOWNLOAD_PAUSE_SECONDS = 4.0
+DEFAULT_YTDLP_RETRY_COUNT = 3
+DEFAULT_YTDLP_RETRY_BASE_SECONDS = 5.0
+
+
+def is_shorts_url(url: str) -> bool:
+    return '/shorts/' in url
+
+
+def clean_url(url: str) -> str:
+    """Убирает list= из URL если есть конкретное видео (v=), чтобы не качать плейлист."""
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    if 'v' in qs and 'list' in qs:
+        qs.pop('list')
+        qs.pop('index', None)
+        return urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))
+    return url
 
 
 class Logger:
@@ -89,14 +113,78 @@ class Logger:
 
 DEFAULT_BASE_DIR = Path(__file__).resolve().parent.parent
 BASE_DIR = Path(os.getenv("BASE_DIR", str(DEFAULT_BASE_DIR))).resolve()
-DATA_DIR = str(BASE_DIR / 'data')
-STRUCTURE_FILE = str(BASE_DIR / 'default_project_structure.txt')
+DATA_DIR = str(Path(os.getenv("PROJECTS_ROOT") or os.getenv("DATA_DIR") or (BASE_DIR / "data")).expanduser().resolve())
+STRUCTURE_FILE = str(BASE_DIR / 'scripts' / 'default_project_structure.txt')
 ENV_FILE = str(BASE_DIR / '.env')
 SCRIPTS_DIR = BASE_DIR / 'scripts'
 REQUIREMENTS_FILE = BASE_DIR / 'requirements.txt'
+PAUSE_FLAG_FILE = BASE_DIR / ".pause_requested"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+
+def is_pause_requested() -> bool:
+    return PAUSE_FLAG_FILE.exists()
+
+
+def clear_pause_flag() -> None:
+    try:
+        PAUSE_FLAG_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+if load_dotenv is not None and os.path.exists(ENV_FILE):
+    load_dotenv(ENV_FILE, override=False)
+
+from photo_placeholder_ops import install_realesrgan
+from path_utils import ensure_project_marker, write_project_marker, list_projects
 
 
 # Project structure creation function
+_REQUIRED_ASSETS = [
+    "assets/scratches_add.mp4",
+    "assets/alpha_mask.mp4",
+    "assets/font/theater.bold-condensed.ttf",
+]
+
+
+def _check_assets() -> None:
+    """Проверяет наличие asset-файлов. Предупреждает, но не останавливает пайплайн."""
+    missing = [p for p in _REQUIRED_ASSETS if not (BASE_DIR / p).exists()]
+    if not missing:
+        return
+    print("\n\033[33m⚠️  Отсутствуют asset-файлы (некоторые скрипты не будут работать):\033[0m")
+    for p in missing:
+        print(f"   • {BASE_DIR / p}")
+    print(f"\033[33m   Положите их в папку: {BASE_DIR / 'assets'}\033[0m\n")
+
+
+def get_project_dir(project_name: str) -> Path:
+    return Path(DATA_DIR) / project_name
+
+
+def init_project_state(project_name: str) -> dict:
+    return ensure_project_marker(
+        get_project_dir(project_name),
+        project_name=project_name,
+        base_dir=BASE_DIR,
+        projects_root=Path(DATA_DIR),
+    )
+
+
+def update_project_state(project_name: str, mutate) -> dict:
+    project_dir = get_project_dir(project_name)
+    state = ensure_project_marker(
+        project_dir,
+        project_name=project_name,
+        base_dir=BASE_DIR,
+        projects_root=Path(DATA_DIR),
+    )
+    mutate(state)
+    state["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    return write_project_marker(project_dir, state)
+
+
 def create_structure():
     def resolve_project_name():
         env_name = os.getenv("PROJECT_NAME", "").strip()
@@ -139,10 +227,11 @@ def create_structure():
         return existing, with_files
 
     print("=== OSNOVATELI.DOC FRAMEWORK ===")
+    _check_assets()
     print(f"\n\033[32m=== Stage1. Start! Создание структуры проекта ===\033[0m")
 
     project_name = get_project_name()
-    project_dir = os.path.join(DATA_DIR, project_name)
+    project_dir = str(get_project_dir(project_name))
 
     required_folders = get_required_structure()
     if required_folders is None:
@@ -163,6 +252,8 @@ def create_structure():
 
     for folder_name in missing_folders:
         os.makedirs(os.path.join(project_dir, folder_name), exist_ok=True)
+
+    init_project_state(project_name)
 
     print(f'\n\033[32m=== Stage1. Done! Создана структура проекта ===\033[0m')
     return project_name
@@ -370,7 +461,7 @@ def parse_links(project_name):
         return None
 
     def categorize_url(url):
-        if is_youtube_url(url):
+        if is_youtube_url(url) and not is_shorts_url(url):
             return 'youtube'
         if is_motionarray_url(url):
             return 'motionarray'
@@ -469,7 +560,97 @@ def parse_links(project_name):
     save_links_to_csv(all_links, is_reparse)
     categorized = categorize_and_save(all_links, is_reparse)
 
+    # Сразу генерируем pulltube_links.txt и motionarray_links.txt
+    _generate_pulltube_links(database_dir, project_name, is_reparse)
+    _generate_motionarray_links(database_dir, project_name, is_reparse)
+
     print(f"\n\033[32m=== Stage2. Done! Ссылки успешно извлечены ===\033[0m")
+
+
+def _generate_pulltube_links(database_dir: str, project_name: str, is_reparse: bool) -> None:
+    """Создаёт/обновляет pulltube_links.txt из os_doc_*_youtube_links.csv."""
+    csv_file = os.path.join(database_dir, f'os_doc_{project_name}_youtube_links.csv')
+    if not os.path.exists(csv_file):
+        print("⚠️  YouTube CSV не найден, pulltube_links.txt не создан")
+        return
+
+    csv_links: list[str] = []
+    try:
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                url = (row.get('url') or '').strip()
+                if url and not is_shorts_url(url):
+                    csv_links.append(clean_url(url))
+    except Exception as e:
+        print(f"⚠️  Ошибка чтения YouTube CSV: {e}")
+        return
+
+    if not csv_links:
+        print("⚠️  В YouTube CSV нет ссылок, pulltube_links.txt не создан")
+        return
+
+    pulltube_file = os.path.join(database_dir, 'pulltube_links.txt')
+
+    if is_reparse and os.path.exists(pulltube_file):
+        with open(pulltube_file, 'r', encoding='utf-8') as f:
+            existing = {l.strip() for l in f if l.strip()}
+        new_links = [u for u in csv_links if u not in existing]
+        if not new_links:
+            print("✓ pulltube_links.txt актуален, новых YouTube-ссылок нет")
+            return
+        timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M')
+        out_file = os.path.join(database_dir, f'pulltube_links_{timestamp}.txt')
+        with open(out_file, 'w', encoding='utf-8') as f:
+            f.writelines(u + '\n' for u in new_links)
+        print(f"✓ Создан {os.path.basename(out_file)} с {len(new_links)} новыми YouTube-ссылками")
+    else:
+        with open(pulltube_file, 'w', encoding='utf-8') as f:
+            f.writelines(u + '\n' for u in csv_links)
+        print(f"✓ Создан pulltube_links.txt с {len(csv_links)} YouTube-ссылками")
+
+
+def _generate_motionarray_links(database_dir: str, project_name: str, is_reparse: bool) -> None:
+    """Создаёт/обновляет motionarray_links.txt из os_doc_*_motionarray_links.csv."""
+    csv_file = os.path.join(database_dir, f'os_doc_{project_name}_motionarray_links.csv')
+    if not os.path.exists(csv_file):
+        print("⚠️  MotionArray CSV не найден, motionarray_links.txt не создан")
+        return
+
+    csv_links: list[str] = []
+    try:
+        with open(csv_file, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                url = (row.get('url') or '').strip()
+                if url:
+                    csv_links.append(url)
+    except Exception as e:
+        print(f"⚠️  Ошибка чтения MotionArray CSV: {e}")
+        return
+
+    if not csv_links:
+        print("⚠️  В MotionArray CSV нет ссылок, motionarray_links.txt не создан")
+        return
+
+    ma_file = os.path.join(database_dir, 'motionarray_links.txt')
+
+    if is_reparse and os.path.exists(ma_file):
+        with open(ma_file, 'r', encoding='utf-8') as f:
+            existing = {l.strip() for l in f if l.strip()}
+        new_links = [u for u in csv_links if u not in existing]
+        if not new_links:
+            print("✓ motionarray_links.txt актуален, новых ссылок нет")
+            return
+        timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M')
+        out_file = os.path.join(database_dir, f'motionarray_links_{timestamp}.txt')
+        with open(out_file, 'w', encoding='utf-8') as f:
+            f.writelines(u + '\n' for u in new_links)
+        print(f"✓ Создан {os.path.basename(out_file)} с {len(new_links)} новыми MotionArray-ссылками")
+    else:
+        with open(ma_file, 'w', encoding='utf-8') as f:
+            f.writelines(u + '\n' for u in csv_links)
+        print(f"✓ Создан motionarray_links.txt с {len(csv_links)} MotionArray-ссылками")
 
 
 def _sanitize_channel_name(channel: str) -> str:
@@ -477,6 +658,56 @@ def _sanitize_channel_name(channel: str) -> str:
     if not channel or FORBIDDEN_SOURCE_URL in channel:
         return ""
     return channel
+
+
+def _cookies_from_browser_tuple(value: str):
+    cleaned = (value or "").strip()
+    if not cleaned:
+        return None
+    parts = [part.strip() or None for part in cleaned.split(":")]
+    while len(parts) < 4:
+        parts.append(None)
+    return tuple(parts[:4])
+
+
+def _metadata_from_ytdlp(url: str, logger) -> Tuple[str, str]:
+    if yt_dlp is None:
+        return "", ""
+
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "extract_flat": False,
+        "socket_timeout": REQUEST_TIMEOUT,
+    }
+    cookies_file = get_cookies_file()
+    if cookies_file:
+        ydl_opts["cookiefile"] = cookies_file
+    cookies_from_browser = _cookies_from_browser_tuple(get_cookies_from_browser())
+    if cookies_from_browser:
+        ydl_opts["cookiesfrombrowser"] = cookies_from_browser
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception as exc:
+        logger.warning(f"yt-dlp metadata failed: {url} ({exc})")
+        return "", ""
+
+    if not isinstance(info, dict):
+        return "", ""
+
+    channel = ""
+    for key in ("channel", "uploader", "creator", "artist", "uploader_id", "channel_id"):
+        channel = _sanitize_channel_name(str(info.get(key) or ""))
+        if channel:
+            break
+    title = str(info.get("title") or "").strip()
+    if channel:
+        logger.success(f"{url} -> {channel} (yt-dlp)")
+    return channel, title
 
 
 def _fetch_json(session, url):
@@ -490,7 +721,7 @@ def _fetch_json(session, url):
 
 
 def get_channel_and_title_for_url(session, url, logger):
-    """Возвращает (channel, title) из YouTube oEmbed."""
+    """Возвращает (channel, title) для YouTube URL."""
     try:
         match = re.match(r"^https?://([^/]+)", url, flags=re.IGNORECASE)
         host = match.group(1).lower().replace("www.", "") if match else ""
@@ -517,7 +748,12 @@ def get_channel_and_title_for_url(session, url, logger):
         logger.stats["youtube"]["error"] += 1
     except Exception:
         pass
-    return "", ""
+
+    channel, title = _metadata_from_ytdlp(url, logger)
+    if channel:
+        logger.stats["youtube"]["success"] += 1
+        return channel, title
+    return "", title
 
 
 # Channel enrichment function
@@ -579,10 +815,11 @@ def enrich_channels(project_name: str):
 
     for idx, (source_address, url) in enumerate(links, 1):
         if url in cache:
-            logger.cache_hits += 1
             channel, title = cache[url]
-            results.append((source_address, url, channel, title))
-            continue
+            if channel:
+                logger.cache_hits += 1
+                results.append((source_address, url, channel, title))
+                continue
         channel, title = get_channel_and_title_for_url(session, url, logger)
         cache[url] = (channel, title)
         results.append((source_address, url, channel, title))
@@ -774,25 +1011,236 @@ def _make_author_png(channel_name: str, output_path: Path):
         img.save(output_path, 'PNG')
 
 
+def _format_bytes(num: float | None) -> str:
+    if not num:
+        return "?"
+    units = ["B", "KiB", "MiB", "GiB"]
+    value = float(num)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return f"{value:.1f}{unit}"
+        value /= 1024
+    return f"{value:.1f}GiB"
+
+
+def _format_speed(num: float | None) -> str:
+    if not num:
+        return "?"
+    return f"{_format_bytes(num)}/s"
+
+
+def _format_eta(seconds: int | float | None) -> str:
+    if seconds is None:
+        return "??:??"
+    total = max(0, int(seconds))
+    minutes, secs = divmod(total, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def resolve_video_quality(value: str | None) -> str:
+    quality = (value or "").strip().lower()
+    if quality in {"original", "1080", "720"}:
+        return quality
+    return "original"
+
+
+def yt_dlp_format_for_quality(quality: str) -> str:
+    quality = resolve_video_quality(quality)
+    if quality == "1080":
+        return "bestvideo[vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best[height<=1080]"
+    if quality == "720":
+        return "bestvideo[vcodec^=avc1][height<=720]+bestaudio[ext=m4a]/bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][height<=720]/best[height<=720]"
+    return "bestvideo[vcodec^=avc1]+bestaudio[ext=m4a]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        value = float((os.getenv(name) or "").strip())
+        return value if value >= 0 else default
+    except Exception:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        value = int((os.getenv(name) or "").strip())
+        return value if value >= 1 else default
+    except Exception:
+        return default
+
+
+def get_video_download_pause_seconds() -> float:
+    return _env_float("VIDEO_DOWNLOAD_PAUSE_SECONDS", DEFAULT_VIDEO_DOWNLOAD_PAUSE_SECONDS)
+
+
+def get_ytdlp_retry_count() -> int:
+    return _env_int("YTDLP_RETRY_COUNT", DEFAULT_YTDLP_RETRY_COUNT)
+
+
+def get_ytdlp_retry_base_seconds() -> float:
+    return _env_float("YTDLP_RETRY_BASE_SECONDS", DEFAULT_YTDLP_RETRY_BASE_SECONDS)
+
+
+def get_cookies_from_browser() -> str:
+    for env_name in ("COOKIES_FROM_BROWSER", "YTDLP_COOKIES_FROM_BROWSER"):
+        value = (os.getenv(env_name) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def get_cookies_file() -> Optional[str]:
+    configured = (os.getenv("COOKIES_FILE") or "").strip()
+    if configured:
+        path = Path(configured).expanduser().resolve()
+        return str(path) if path.exists() else None
+    default_path = BASE_DIR / "cookies.txt"
+    return str(default_path) if default_path.exists() else None
+
+
+def is_ytdlp_rate_limited(text: str) -> bool:
+    lowered = (text or "").lower()
+    return (
+        "429" in lowered
+        or "too many requests" in lowered
+        or "rate limit" in lowered
+        or "http error 429" in lowered
+    )
+
+
+class _YTDLPLogger:
+    def debug(self, msg):
+        text = (msg or "").strip()
+        if text and not text.startswith("[debug]"):
+            print(f"    {text}", flush=True)
+
+    def warning(self, msg):
+        text = (msg or "").strip()
+        if text:
+            print(f"    {text}", flush=True)
+
+    def error(self, msg):
+        text = (msg or "").strip()
+        if text:
+            print(f"    {text}", flush=True)
+
+
+class _ProgressPrinter:
+    def __init__(self):
+        self.spinner_frames = "|/-\\"
+        self.spinner_idx = 0
+        self.active = False
+
+    def clear(self):
+        if self.active:
+            print(flush=True)
+            self.active = False
+
+    def hook(self, data):
+        status = data.get("status")
+        if status == "downloading":
+            downloaded = data.get("downloaded_bytes") or 0
+            total = data.get("total_bytes") or data.get("total_bytes_estimate")
+            percent = (downloaded / total * 100) if total else 0.0
+            line = (
+                f"[download] {percent:5.1f}% of {_format_bytes(total)} "
+                f"at {_format_speed(data.get('speed'))} ETA {_format_eta(data.get('eta'))}"
+            )
+            if sys.stdout.isatty():
+                frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
+                self.spinner_idx += 1
+                print(f"\r    {frame} {line}", end="", flush=True)
+                self.active = True
+            else:
+                print(f"    {line}", flush=True)
+        elif status == "finished":
+            self.clear()
+            filename = data.get("filename")
+            if filename:
+                print(f"    [download] Готов файл: {os.path.basename(filename)}", flush=True)
+
+
 def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[str] = None) -> bool:
-    """Скачивает одно видео через pull-vids Docker в указанную папку."""
-    pull_vids_dir = SCRIPTS_DIR / "pull-vids"
-    if not pull_vids_dir.exists():
-        print(f"  ❌ pull-vids не найден: {pull_vids_dir}")
-        return False
+    """Скачивает одно видео через yt-dlp subprocess с явным захватом вывода."""
     output_dir.mkdir(parents=True, exist_ok=True)
-    cmd = ['docker', 'compose', 'run', '--rm', '-v', f'{output_dir}:/downloads']
-    if cookies_file and Path(cookies_file).exists():
-        cmd += ['-v', f'{cookies_file}:/cookies.txt', 'pull-vids', '--cookies', '/cookies.txt', '-o', '/downloads', url]
-    else:
-        cmd += ['pull-vids', '-o', '/downloads', url]
-    result = subprocess.run(cmd, cwd=str(pull_vids_dir), stderr=subprocess.PIPE, text=True)
-    if result.returncode != 0:
-        if result.stderr:
-            for line in result.stderr.strip().splitlines()[-5:]:
-                print(f"  {line}")
+    ytdlp_bin = shutil.which("yt-dlp")
+    if not ytdlp_bin:
+        print("  ❌ yt-dlp не найден в PATH")
         return False
-    return True
+    video_quality = resolve_video_quality(os.getenv("VIDEO_QUALITY"))
+    cookies_from_browser = get_cookies_from_browser()
+    retry_count = get_ytdlp_retry_count()
+    retry_base_sleep = get_ytdlp_retry_base_seconds()
+
+    def build_cmd() -> list[str]:
+        cmd = [
+            ytdlp_bin,
+            "--format", yt_dlp_format_for_quality(video_quality),
+            "--merge-output-format", "mp4",
+            "--output", str(output_dir / "%(title)s [%(id)s].%(ext)s"),
+            "--no-playlist",
+            "--newline",
+        ]
+        if cookies_from_browser:
+            cmd += ["--cookies-from-browser", cookies_from_browser]
+        if cookies_file and Path(cookies_file).exists():
+            cmd += ["--cookies", cookies_file]
+        cmd.append(url)
+        return cmd
+
+    print(f"  🎞️ Качество: {video_quality}", flush=True)
+    if cookies_from_browser:
+        print(f"  🍪 cookies-from-browser: {cookies_from_browser}", flush=True)
+    elif cookies_file and Path(cookies_file).exists():
+        print(f"  🍪 cookies.txt: {Path(cookies_file).name}", flush=True)
+
+    for attempt in range(1, retry_count + 1):
+        captured_lines: list[str] = []
+
+        # Явно захватываем stdout+stderr и пробрасываем в лог построчно.
+        # Это предотвращает переполнение pipe-буфера при наследовании fd от родителя.
+        proc = subprocess.Popen(
+            build_cmd(),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        for line in proc.stdout:
+            line = line.rstrip()
+            if line:
+                captured_lines.append(line)
+                print(line, flush=True)
+        proc.wait()
+
+        if proc.returncode == 0:
+            mp4_files = sorted(output_dir.glob("*.mp4"), key=lambda f: f.stat().st_mtime, reverse=True)
+            if not mp4_files:
+                print(f"  ❌ MP4 файл не найден в {output_dir}")
+                return False
+            latest = mp4_files[0]
+            size_mb = latest.stat().st_size / 1024 / 1024
+            print(f"  ✅ Файл: {latest.name} ({size_mb:.1f} MB)")
+            return True
+
+        joined_output = "\n".join(captured_lines)
+        if attempt < retry_count and is_ytdlp_rate_limited(joined_output):
+            sleep_for = retry_base_sleep * attempt
+            print(
+                f"  ⚠️ Получен rate limit / 429. Повтор через {sleep_for:.1f} сек "
+                f"({attempt}/{retry_count})",
+                flush=True,
+            )
+            time.sleep(sleep_for)
+            continue
+
+        print(f"  ❌ yt-dlp завершился с кодом {proc.returncode}")
+        return False
+
+    return False
 
 
 # Author image creation function
@@ -849,12 +1297,11 @@ def create_author_images(project_name: str):
         # В режиме правок дополнительно проверяем базовую папку
         base_output_path = base_author_dir / output_name
         base_old_output_path = base_author_dir / f"{source_address}_author.png"
-        already_exists = (
-            output_path.exists()
-            or (output_path != old_output_path and old_output_path.exists())
-            or (upd_subdir and (base_output_path.exists() or base_old_output_path.exists()))
-        )
-        if already_exists:
+        existing_paths = [
+            path for path in (output_path, old_output_path, base_output_path, base_old_output_path)
+            if path.exists()
+        ]
+        if existing_paths and not channel_name:
             skipped += 1
             continue
         try:
@@ -1104,67 +1551,84 @@ def download_images(project_name: str):
 
 SCRIPT_TASKS = [
     {
-        "title": "Проверить Krea API",
-        "script": "check_krea_api.py",
-        "needs_project": False,
-        "only_in_all_mode": "nano",
-    },
-    {
+        "id": "smart_cropping",
         "title": "Обработать картинки: Nano Banana 2 или crop 16:9",
         "script": "2.1_smart_cropping.py",
         "needs_project": True,
         "needs_image_mode": True,
     },
     {
-        "title": "Создать pulltube_links.txt из YouTube CSV",
-        "script": "3.2_pulltube.py",
-        "needs_project": True,
-    },
-    {
-        "title": "Создать motionarray_links.txt из MotionArray CSV",
-        "script": "3.3_motionarray.py",
-        "needs_project": True,
-    },
-    {
-        "title": "Скачать YouTube видео через pull-vids Docker",
+        "id": "pullvids_download",
+        "title": "Скачать YouTube видео (yt-dlp)",
         "script": "3.4_pullvids_download.py",
         "needs_project": True,
     },
     {
-        "title": "Сконвертировать скачанные видео в MP4",
-        "script": "3.5_pullvids_convert.py",
-        "needs_project": True,
-        "requires_convert_confirm": True,
-    },
-    {
+        "id": "pulltube_rename",
         "title": "Переименовать YouTube видео",
         "script": "4_pulltube_rename.py",
         "needs_project": True,
         "project_arg": True,
+        "continue_on_error": True,
     },
     {
+        "id": "motionarray_rename",
         "title": "Переименовать MotionArray видео",
         "script": "4.1_motionarray_rename.py",
         "needs_project": True,
         "project_arg": True,
+        "continue_on_error": True,
     },
     {
+        "id": "photo_placeholders",
         "title": "Создать video placeholders из фото",
         "script": "5_photo_placeholders.py",
         "needs_project": True,
+        "continue_on_error": True,
     },
     {
+        "id": "screenshots",
         "title": "Сделать скриншоты other links",
         "script": "7_screenshot_other_links.py",
         "needs_project": True,
         "project_arg": True,
+        "continue_on_error": True,
     },
     {
+        "id": "sort_errors",
         "title": "Разобрать ошибки скачивания",
         "script": "sort_errors.py",
-        "needs_project": False,
+        "needs_project": True,
+        "continue_on_error": True,
     },
 ]
+
+CORE_STAGES = [
+    {"id": "stage_structure", "title": "Создать структуру папок", "run_mode": "stage_structure", "needs_project": True},
+    {"id": "stage_parse_links", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_project": True, "needs_sheets": True},
+    {"id": "stage_xml", "title": "XML плейсхолдеры", "run_mode": "stage_xml", "needs_project": True},
+    {"id": "stage_enrich", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "needs_project": True},
+    {"id": "stage_author", "title": "Создать PNG-плашки источников", "run_mode": "stage_author", "needs_project": True},
+    {"id": "stage_images", "title": "Скачать изображения", "run_mode": "stage_images", "needs_project": True},
+]
+
+FLOW_STEP_CATALOG = [
+    {"id": "stage_structure", "kind": "stage", "title": "Создать структуру папок", "run_mode": "stage_structure"},
+    {"id": "stage_parse_links", "kind": "stage", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_sheets": True},
+    {"id": "stage_xml", "kind": "stage", "title": "XML плейсхолдеры", "run_mode": "stage_xml"},
+    {"id": "stage_enrich", "kind": "stage", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich"},
+    {"id": "stage_author", "kind": "stage", "title": "Создать PNG-плашки источников", "run_mode": "stage_author"},
+    {"id": "stage_images", "kind": "stage", "title": "Скачать изображения", "run_mode": "stage_images"},
+    {"id": "pullvids_download", "kind": "script", "title": "Скачать YouTube видео (yt-dlp)", "script_id": "pullvids_download"},
+    {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео", "script_id": "pulltube_rename"},
+    {"id": "motionarray_rename", "kind": "script", "title": "Переименовать MotionArray видео", "script_id": "motionarray_rename"},
+    {"id": "smart_cropping", "kind": "script", "title": "Кроп / Nano Banana 2", "script_id": "smart_cropping"},
+    {"id": "photo_placeholders", "kind": "script", "title": "Создать video placeholders из фото", "script_id": "photo_placeholders"},
+    {"id": "screenshots", "kind": "script", "title": "Скриншоты other links", "script_id": "screenshots"},
+]
+
+DEFAULT_NEW_PROJECT_STEP_IDS = [step["id"] for step in FLOW_STEP_CATALOG]
+DEFAULT_EDITS_STEP_IDS = [step["id"] for step in FLOW_STEP_CATALOG if step["id"] != "stage_structure"]
 
 
 CORE_PIPELINE_TITLE = "Core pipeline: структура проекта, Google таблица, CSV, XML, авторы, картинки"
@@ -1176,6 +1640,7 @@ def run_command(cmd, cwd=None, env=None, continue_on_error=False):
         [str(part) for part in cmd],
         cwd=str(cwd or BASE_DIR),
         env=env,
+        stdin=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
     )
     if result.returncode != 0:
@@ -1276,6 +1741,12 @@ def install_ffmpeg():
     print("Установите ffmpeg вручную и повторите запуск зависимостей.")
 
 
+def install_realesrgan_dependency():
+    print("\n=== Проверка Real-ESRGAN ===")
+    install_realesrgan(BASE_DIR, sys.executable)
+    print("✓ Real-ESRGAN установлен")
+
+
 def install_docker_desktop():
     print("\n=== Проверка Docker Desktop / Docker Compose ===")
     docker_ok = shutil.which("docker") is not None
@@ -1327,6 +1798,7 @@ def install_all_dependencies():
     install_python_requirements()
     install_playwright_chromium()
     install_ffmpeg()
+    install_realesrgan_dependency()
     install_docker_desktop()
     print("\n\033[32m=== Зависимости проверены ===\033[0m")
 
@@ -1404,7 +1876,7 @@ def list_existing_projects():
     data_path = Path(DATA_DIR)
     if not data_path.exists():
         return []
-    return sorted(path.name for path in data_path.iterdir() if path.is_dir())
+    return sorted(project.get("name") or Path(project.get("path") or "").name for project in list_projects(data_path))
 
 
 def select_project_name():
@@ -1456,6 +1928,8 @@ def select_image_processing_mode():
 def build_script_env(project_name=None, image_mode=None):
     env = os.environ.copy()
     env["BASE_DIR"] = str(BASE_DIR)
+    env["PROJECTS_ROOT"] = DATA_DIR
+    env["PYTHONUNBUFFERED"] = "1"
     scripts_path = str(SCRIPTS_DIR)
     current_pythonpath = env.get("PYTHONPATH", "")
     paths = [scripts_path]
@@ -1492,59 +1966,143 @@ def run_script_task(task, project_name=None, image_mode=None):
         continue_on_error=task.get("continue_on_error", False),
     )
 
+FLOW_STEP_MAP = {step["id"]: step for step in FLOW_STEP_CATALOG}
+SCRIPT_TASK_MAP = {task["id"]: task for task in SCRIPT_TASKS}
 
-def run_core_pipeline(project_name):
-    ensure_core_dependencies()
+
+def get_default_flow_step_ids(flow_name: str):
+    if flow_name == "new_project":
+        return list(DEFAULT_NEW_PROJECT_STEP_IDS)
+    if flow_name == "edits":
+        return list(DEFAULT_EDITS_STEP_IDS)
+    raise RuntimeError(f"Неизвестный flow: {flow_name}")
+
+
+def normalize_flow_step_ids(flow_name: str, selected_ids):
+    allowed_ids = set(get_default_flow_step_ids(flow_name))
+    if not selected_ids:
+        return get_default_flow_step_ids(flow_name)
+
+    normalized = []
+    seen = set()
+    for step in FLOW_STEP_CATALOG:
+        step_id = step["id"]
+        if step_id in selected_ids and step_id in allowed_ids and step_id not in seen:
+            normalized.append(step_id)
+            seen.add(step_id)
+    return normalized
+
+
+def run_core_stage(run_mode: str, project_name: str):
     os.environ["PROJECT_NAME"] = project_name
-    created_project_name = create_structure()
-    if not created_project_name:
-        return
-    parse_links(created_project_name)
-    create_xml_placeholders(created_project_name)
-    enrich_channels(created_project_name)
-    create_author_images(created_project_name)
-    download_images(created_project_name)
+    if run_mode == "stage_structure":
+        return create_structure()
+    if run_mode == "stage_parse_links":
+        return parse_links(project_name)
+    if run_mode == "stage_xml":
+        return create_xml_placeholders(project_name)
+    if run_mode == "stage_enrich":
+        return enrich_channels(project_name)
+    if run_mode == "stage_author":
+        return create_author_images(project_name)
+    if run_mode == "stage_images":
+        return download_images(project_name)
+    raise RuntimeError(f"Неизвестная стадия: {run_mode}")
 
 
-def tasks_for_all_run(image_mode, convert_videos=False):
-    selected = []
-    for task in SCRIPT_TASKS:
-        if task.get("requires_convert_confirm") and not convert_videos:
-            continue
-        optional_mode = task.get("only_in_all_mode")
-        if optional_mode and optional_mode != image_mode:
-            continue
-        selected.append(task)
-    return selected
+def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selected_ids=None):
+    ensure_core_dependencies()
+    ordered_ids = normalize_flow_step_ids(flow_name, selected_ids or [])
+    if not ordered_ids:
+        raise RuntimeError("Не выбран ни один шаг для выполнения.")
+
+    os.environ["PROJECT_NAME"] = project_name
+    init_project_state(project_name)
+    update_project_state(project_name, lambda state: state.update({
+        "status": "running",
+        "current_flow": flow_name,
+        "last_run_at": datetime.now().isoformat(timespec="seconds"),
+        "current_wave": os.getenv("UPD_SUBDIR", "").strip(),
+    }))
+    for step_id in ordered_ids:
+        step = FLOW_STEP_MAP[step_id]
+        print(f"\n\033[36m=== Шаг: {step['title']} ===\033[0m")
+        update_project_state(project_name, lambda state, step_id=step_id, title=step["title"]: state.setdefault("steps", {}).update({
+            step_id: {
+                "title": title,
+                "status": "running",
+                "started_at": datetime.now().isoformat(timespec="seconds"),
+                "finished_at": "",
+                "kind": step["kind"],
+            }
+        }))
+        try:
+            if step["kind"] == "stage":
+                run_core_stage(step["run_mode"], project_name)
+            else:
+                task = SCRIPT_TASK_MAP[step["script_id"]]
+                run_script_task(task, project_name=project_name, image_mode=image_mode)
+        except Exception:
+            update_project_state(project_name, lambda state, step_id=step_id: state.setdefault("steps", {}).setdefault(step_id, {}).update({
+                "status": "failed",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }))
+            update_project_state(project_name, lambda state: state.update({"status": "failed"}))
+            raise
+        update_project_state(project_name, lambda state, step_id=step_id: state.setdefault("steps", {}).setdefault(step_id, {}).update({
+            "status": "done",
+            "finished_at": datetime.now().isoformat(timespec="seconds"),
+        }))
+
+        # Проверяем флаг паузы после каждого завершённого шага
+        if is_pause_requested():
+            clear_pause_flag()
+            remaining = ordered_ids[ordered_ids.index(step_id) + 1:]
+            update_project_state(project_name, lambda state, rem=remaining, fn=flow_name, im=image_mode: state.update({
+                "status": "paused",
+                "pending_steps": rem,
+                "paused_flow": fn,
+                "paused_image_mode": im,
+                "paused_wave": os.getenv("UPD_SUBDIR", "").strip(),
+            }))
+            print(f"\n\033[33m⏸️  Пауза. Выполнено до: {step['title']}\033[0m")
+            if remaining:
+                print(f"   Осталось шагов: {len(remaining)}")
+                print(f"   Нажмите «Продолжить» в интерфейсе чтобы возобновить.")
+            else:
+                print(f"   Это был последний шаг — пауза не нужна.")
+            return
+
+    update_project_state(project_name, lambda state: state.update({
+        "status": "ready",
+        "pending_steps": [],
+        "paused_flow": "",
+        "paused_wave": "",
+    }))
 
 
 def run_new_project():
     """Flow 0: новый проект — создаёт структуру и запускает полный пайплайн."""
-    ensure_core_dependencies()
     project_name = select_project_name()
     image_mode = select_image_processing_mode()
-    convert_videos = ask_confirm("Конвертировать скачанные видео в MP4 после загрузки?")
+    selected_steps = get_default_flow_step_ids("new_project")
 
     print("\n=== 0. Новый проект ===")
     print(f"Проект: {project_name}")
     print(f"Режим картинок: {image_mode}")
-    print(f"Конвертация видео: {'да' if convert_videos else 'нет'}")
-    print(f"Шаги: структура → таблица → xml → авторы → картинки → видео → переименование → кроп → статьи")
+    print("Шаги по умолчанию:")
+    print(" → ".join(FLOW_STEP_MAP[step_id]["title"] for step_id in selected_steps))
 
     if not ask_confirm("Запустить?"):
         print("Отменено.")
         return
 
-    run_core_pipeline(project_name)
-    for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
-        run_script_task(task, project_name=project_name, image_mode=image_mode)
-
+    execute_flow_steps(project_name, image_mode, "new_project", selected_steps)
     print("\n\033[32m=== Новый проект готов ===\033[0m")
 
 
 def run_edits():
     """Flow 1: правки — выбирает существующий проект, парсит новую CSV, запускает пайплайн."""
-    ensure_core_dependencies()
     projects = list_existing_projects()
     if not projects:
         print("Нет существующих проектов. Используйте '0. Новый проект'.")
@@ -1555,11 +2113,12 @@ def run_edits():
     os.environ["PROJECT_NAME"] = project_name
 
     image_mode = select_image_processing_mode()
-    convert_videos = ask_confirm("Конвертировать скачанные видео в MP4 после загрузки?")
+    selected_steps = get_default_flow_step_ids("edits")
 
     upd_key = datetime.now().strftime("upd_%Y-%m-%d")
     print(f"\n=== 1. Правки: {project_name} | волна: {upd_key} ===")
-    print("Шаги: новая таблица → xml → авторы → картинки → видео → переименование → кроп → статьи")
+    print("Шаги по умолчанию:")
+    print(" → ".join(FLOW_STEP_MAP[step_id]["title"] for step_id in selected_steps))
     print(f"Файлы этой волны пойдут в подпапки {upd_key}/")
 
     if not ask_confirm("Запустить?"):
@@ -1567,19 +2126,11 @@ def run_edits():
         return
 
     os.environ["UPD_SUBDIR"] = upd_key
-
-    # Структура уже создана — парсим новую CSV и обновляем только новые записи
-    parse_links(project_name)
-    create_xml_placeholders(project_name)
-    enrich_channels(project_name)
-    create_author_images(project_name)
-    download_images(project_name)
-
-    for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
-        run_script_task(task, project_name=project_name, image_mode=image_mode)
-
-    os.environ.pop("UPD_SUBDIR", None)
-    print("\n\033[32m=== Правки завершены ===\033[0m")
+    try:
+        execute_flow_steps(project_name, image_mode, "edits", selected_steps)
+        print("\n\033[32m=== Правки завершены ===\033[0m")
+    finally:
+        os.environ.pop("UPD_SUBDIR", None)
 
 
 def run_external_folder_crop_placeholder():
@@ -1649,7 +2200,14 @@ def run_selected_task_menu():
 
             if choice == "core":
                 project_name = project_name or select_project_name()
-                run_core_pipeline(project_name)
+                execute_flow_steps(project_name, image_mode or "crop", "new_project", [
+                    "stage_structure",
+                    "stage_parse_links",
+                    "stage_xml",
+                    "stage_enrich",
+                    "stage_author",
+                    "stage_images",
+                ])
                 continue
 
             if choice == "external_folder":
@@ -1675,7 +2233,7 @@ def run_direct_video_download():
     Туда кладутся сами видео и PNG-плашки рядом.
     """
     ensure_core_dependencies()
-    project_name = select_project_name()
+    project_name = (os.getenv("PROJECT_NAME") or "").strip() or select_project_name()
 
     # Non-interactive mode: read URLs from env var (set by web UI)
     env_urls = os.getenv("VIDEO_URLS", "").strip()
@@ -1703,6 +2261,15 @@ def run_direct_video_download():
         print("Ссылки не указаны.")
         return
 
+    # Фильтр шортсов и очистка list= из URL
+    shorts = [u for u in urls if is_shorts_url(u)]
+    urls = [clean_url(u) for u in urls if not is_shorts_url(u)]
+    if shorts:
+        print(f"⏭️  Шортсы пропущены ({len(shorts)}): " + ", ".join(u[:60] for u in shorts))
+    if not urls:
+        print("Нет видео для скачивания (все — шортсы).")
+        return
+
     session_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     project_dir = Path(DATA_DIR) / project_name
     session_dir = project_dir / "video_direct" / session_ts
@@ -1722,10 +2289,11 @@ def run_direct_video_download():
         label = (title or url)[:60]
         print(f"  {label} → {channel or '?'}")
 
-    cookies_file = str(BASE_DIR / "cookies.txt") if (BASE_DIR / "cookies.txt").exists() else None
+    cookies_file = get_cookies_file()
 
     print(f"\n=== Скачивание ===")
     ok = fail = 0
+    pause_seconds = get_video_download_pause_seconds()
     for idx, url in enumerate(urls, 1):
         channel, title = url_meta[url]
         label = (title or url)[:60]
@@ -1743,6 +2311,10 @@ def run_direct_video_download():
         else:
             fail += 1
             print(f"  ❌ Ошибка скачивания")
+
+        if idx < len(urls) and pause_seconds > 0:
+            print(f"  ⏳ Пауза перед следующим видео: {pause_seconds:.1f} сек")
+            time.sleep(pause_seconds)
 
     print(f"\n{'='*50}")
     print(f"Скачано: {ok}, ошибок: {fail}")
@@ -1852,16 +2424,16 @@ def _run_noninteractive(mode: str):
     elif mode == "install_ffmpeg":
         install_ffmpeg()
 
+    elif mode == "install_realesrgan":
+        install_realesrgan_dependency()
+
     elif mode == "new_project":
         project_name = os.getenv("PROJECT_NAME", "").strip()
         if not project_name:
             raise RuntimeError("PROJECT_NAME env var is required for --run new_project")
         image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
-        convert_videos = os.getenv("CONVERT_VIDEOS", "false").lower() in ("1", "true", "yes")
-        ensure_core_dependencies()
-        run_core_pipeline(project_name)
-        for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
-            run_script_task(task, project_name=project_name, image_mode=image_mode)
+        selected_steps = json.loads(os.getenv("FLOW_SELECTION_JSON", "[]") or "[]")
+        execute_flow_steps(project_name, image_mode, "new_project", selected_steps)
         print("\n\033[32m=== Новый проект готов ===\033[0m")
 
     elif mode == "edits":
@@ -1869,24 +2441,86 @@ def _run_noninteractive(mode: str):
         if not project_name:
             raise RuntimeError("PROJECT_NAME env var is required for --run edits")
         image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
-        convert_videos = os.getenv("CONVERT_VIDEOS", "false").lower() in ("1", "true", "yes")
+        selected_steps = json.loads(os.getenv("FLOW_SELECTION_JSON", "[]") or "[]")
         upd_key = datetime.now().strftime("upd_%Y-%m-%d")
-        ensure_core_dependencies()
         os.environ["UPD_SUBDIR"] = upd_key
-        print(f"\n=== 1. Правки: {project_name} | волна: {upd_key} ===")
-        parse_links(project_name)
-        create_xml_placeholders(project_name)
-        enrich_channels(project_name)
-        create_author_images(project_name)
-        download_images(project_name)
-        for task in tasks_for_all_run(image_mode, convert_videos=convert_videos):
-            run_script_task(task, project_name=project_name, image_mode=image_mode)
-        os.environ.pop("UPD_SUBDIR", None)
-        print("\n\033[32m=== Правки завершены ===\033[0m")
+        try:
+            print(f"\n=== 1. Правки: {project_name} | волна: {upd_key} ===")
+            execute_flow_steps(project_name, image_mode, "edits", selected_steps)
+            print("\n\033[32m=== Правки завершены ===\033[0m")
+        finally:
+            os.environ.pop("UPD_SUBDIR", None)
 
     elif mode == "direct_video":
         ensure_core_dependencies()
         run_direct_video_download()
+
+    # ── Individual core pipeline stages ───────────────────────────────────────
+    elif mode == "stage_structure":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME required")
+        ensure_core_dependencies()
+        os.environ["PROJECT_NAME"] = project_name
+        create_structure()
+
+    elif mode == "stage_parse_links":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME required")
+        ensure_core_dependencies()
+        parse_links(project_name)
+
+    elif mode == "stage_xml":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME required")
+        ensure_core_dependencies()
+        create_xml_placeholders(project_name)
+
+    elif mode == "stage_enrich":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME required")
+        ensure_core_dependencies()
+        enrich_channels(project_name)
+
+    elif mode == "stage_author":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME required")
+        ensure_core_dependencies()
+        create_author_images(project_name)
+
+    elif mode == "stage_images":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME required")
+        ensure_core_dependencies()
+        download_images(project_name)
+
+    elif mode == "upscale_placeholders":
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        if not project_name:
+            raise RuntimeError("PROJECT_NAME required")
+        script_path = SCRIPTS_DIR / "6_upscale_photos.py"
+        if not script_path.exists():
+            raise FileNotFoundError(f"Скрипт не найден: {script_path}")
+        run_command(
+            [sys.executable, script_path],
+            cwd=BASE_DIR,
+            env=build_script_env(project_name=project_name),
+        )
+
+    elif mode.startswith("script:"):
+        # Run a specific script by name: --run script:2.1_smart_cropping.py
+        script_name = mode[len("script:"):]
+        project_name = os.getenv("PROJECT_NAME", "").strip()
+        image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
+        task = next((t for t in SCRIPT_TASKS if t["script"] == script_name), None)
+        if task is None:
+            raise RuntimeError(f"Скрипт не найден в SCRIPT_TASKS: {script_name}")
+        run_script_task(task, project_name=project_name or None, image_mode=image_mode)
 
     else:
         raise RuntimeError(f"Неизвестный режим: {mode}")

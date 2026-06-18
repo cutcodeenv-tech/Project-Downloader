@@ -31,24 +31,26 @@ def get_project_name():
         print('Ошибка: название проекта не может быть пустым.')
 
 
+from path_utils import get_data_dir
+_DATA_DIR = get_data_dir(__file__)
+
+
 def get_project_database_dir(project_name: str) -> Path:
-    """Возвращает путь к директории database для указанного проекта"""
-    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "database"
+    return _DATA_DIR / project_name / "database"
 
 
 def get_project_screenshots_dir(project_name: str) -> Path:
-    """Возвращает путь к директории articles для указанного проекта"""
-    return Path("/Users/theseus/Projects/osnovateli_doc_framework/data") / project_name / "articles"
+    return _DATA_DIR / project_name / "articles"
 
 
 def get_other_links_csv_path(project_name: str) -> Path:
     """Возвращает путь к CSV файлу с other ссылками"""
-    return get_project_database_dir(project_name) / f"osnovateli_doc_{project_name}_other_links.csv"
+    return get_project_database_dir(project_name) / f"os_doc_{project_name}_other_links.csv"
 
 
 def read_links_from_csv(file_path: Path) -> List[Tuple[str, str]]:
     """Читает ссылки из CSV файла.
-    
+
     Возвращает список кортежей: (source_address, url)
     """
     if not file_path.exists():
@@ -61,7 +63,7 @@ def read_links_from_csv(file_path: Path) -> List[Tuple[str, str]]:
             for row_num, row in enumerate(reader, start=2):
                 source_address = row.get('source_address', '').strip()
                 url = row.get('url', '').strip()
-                
+
                 # Пропускаем строки upd_ и пустые
                 if source_address and url and not source_address.startswith('upd_'):
                     pairs.append((source_address, url))
@@ -70,7 +72,7 @@ def read_links_from_csv(file_path: Path) -> List[Tuple[str, str]]:
     except Exception as e:
         print(f"❌ Ошибка при чтении CSV файла: {e}", file=sys.stderr)
         raise
-    
+
     return pairs
 
 
@@ -78,19 +80,19 @@ def save_screenshot_log(project_name: str, log_data: list) -> None:
     """Сохраняет лог скриншотов в CSV файл"""
     database_dir = get_project_database_dir(project_name)
     log_file = database_dir / f"osnovateli_doc_{project_name}_screenshot_log.csv"
-    
+
     # Создаем директорию если не существует
     database_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Определяем, нужно ли писать заголовки
     file_exists = log_file.exists()
-    
+
     with log_file.open("a", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=['timestamp', 'source_address', 'url', 'filename', 'status', 'error'])
-        
+
         if not file_exists:
             writer.writeheader()
-        
+
         for data in log_data:
             writer.writerow(data)
 
@@ -104,40 +106,40 @@ def disable_interactive_elements(page) -> None:
             el.style.pointerEvents = 'none';
             el.style.opacity = '0.7';
         });
-        
+
         // Отключаем все ссылки
         document.querySelectorAll('a').forEach(el => {
             el.style.pointerEvents = 'none';
             el.style.cursor = 'default';
         });
-        
+
         // Отключаем все формы
         document.querySelectorAll('form').forEach(el => {
             el.style.pointerEvents = 'none';
         });
-        
+
         // Останавливаем и скрываем все видео
         document.querySelectorAll('video').forEach(el => {
             el.pause();
             el.style.pointerEvents = 'none';
         });
-        
+
         // Останавливаем и скрываем все аудио
         document.querySelectorAll('audio').forEach(el => {
             el.pause();
             el.style.pointerEvents = 'none';
         });
-        
+
         // Отключаем iframe
         document.querySelectorAll('iframe').forEach(el => {
             el.style.pointerEvents = 'none';
         });
-        
+
         // Закрываем модальные окна
         document.querySelectorAll('[class*="modal"], [class*="popup"], [class*="dialog"]').forEach(el => {
             el.style.display = 'none';
         });
-        
+
         // Отключаем анимации через CSS
         const style = document.createElement('style');
         style.textContent = `
@@ -149,7 +151,7 @@ def disable_interactive_elements(page) -> None:
             }
         `;
         document.head.appendChild(style);
-        
+
         // Отключаем все интерактивные элементы через pointer-events
         document.body.style.pointerEvents = 'auto';
         document.querySelectorAll('*').forEach(el => {
@@ -171,19 +173,19 @@ def take_screenshot(page, url: str, output_path: Path, timeout: int = 15000) -> 
     try:
         # Быстрая стратегия: просто ждем базовой загрузки DOM
         page.goto(url, wait_until='domcontentloaded', timeout=timeout)
-        
+
         # Пауза для рендеринга (5 сек для медленного интернета)
         time.sleep(5)
-        
+
         # Отключаем интерактивные элементы перед скриншотом
         disable_interactive_elements(page)
-        
+
         # Небольшая пауза после отключения элементов
         time.sleep(0.5)
-        
+
         # Делаем скриншот всей страницы
         page.screenshot(path=str(output_path), full_page=True, timeout=10000)
-        
+
         return True, ""
     except PlaywrightTimeout:
         return False, "Timeout при загрузке"
@@ -195,7 +197,7 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
     """Основная функция обработки скриншотов"""
     print(f"\n=== СОЗДАНИЕ СКРИНШОТОВ ИЗ OTHER_LINKS ===")
     print(f"Проект: {project_name}")
-    
+
     # Получаем пути
     csv_file = get_other_links_csv_path(project_name)
     upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
@@ -216,43 +218,47 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
 
     # Создаем директорию для скриншотов
     screenshots_dir.mkdir(parents=True, exist_ok=True)
-    
+
     # Читаем ссылки
     try:
         pairs = read_links_from_csv(csv_file)
     except Exception as e:
         print(f"❌ Ошибка при чтении CSV: {e}")
         return
-    
+
     if not pairs:
         print("❌ CSV файл пуст или не содержит корректных ссылок")
         return
-    
+
     # Ограничиваем количество для тестирования
     if max_links:
         pairs = pairs[:max_links]
         print(f"🧪 ТЕСТОВЫЙ РЕЖИМ: обработка первых {max_links} ссылок")
-    
+
     print(f"\n📊 Всего ссылок для обработки: {len(pairs)}")
-    
+
     # Список для лога
     log_data = []
     manual_screenshots = []  # Ссылки для ручной обработки
     successful = 0
     failed = 0
-    
+
     # Запускаем Playwright
     print(f"\n🚀 Запуск браузера...")
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
+    _pw_ctx = None
+    browser = None
+    try:
+        _pw_ctx = sync_playwright().start()
+        browser = _pw_ctx.chromium.launch(
             headless=headless,
+            timeout=30_000,
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--disable-dev-shm-usage',
                 '--no-sandbox'
             ]
         )
-        
+
         # Настраиваем контекст браузера с реалистичным user agent
         context = browser.new_context(
             user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -260,13 +266,13 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
             locale='ru-RU',
             timezone_id='Europe/Moscow'
         )
-        
+
         page = context.new_page()
-        
+
         # Обрабатываем каждую ссылку
         for idx, (source_address, url) in enumerate(pairs, 1):
             print(f"[{idx}/{len(pairs)}] 🔍 {source_address}: {url[:60]}...")
-            
+
             # Формируем имя файла
             filename = f"{source_address}_screenshot.png"
             output_path = screenshots_dir / filename
@@ -283,10 +289,10 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
             if already_exists:
                 print(f"  ⏭️  Уже есть")
                 continue
-            
+
             # Делаем скриншот
             success, error_msg = take_screenshot(page, url, output_path)
-            
+
             if success:
                 print(f"  ✅ OK")
                 log_data.append({
@@ -300,9 +306,7 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
                 successful += 1
             else:
                 print(f"  ❌ Fail: {error_msg}")
-                # Добавляем в список для ручной обработки
                 manual_screenshots.append(f"{source_address}\t{url}")
-                
                 log_data.append({
                     'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
                     'source_address': source_address,
@@ -312,19 +316,31 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
                     'error': error_msg
                 })
                 failed += 1
-            
+
             # Минимальная задержка между запросами (0.5-1 сек)
             if idx < len(pairs):
                 time.sleep(random.uniform(0.5, 1))
-        
-        # Закрываем браузер
-        browser.close()
-    
+
+    except Exception as e:
+        print(f"❌ Ошибка браузера: {e}")
+        print("Убедитесь что Chromium установлен: playwright install chromium")
+    finally:
+        if browser:
+            try:
+                browser.close()
+            except Exception:
+                pass
+        if _pw_ctx:
+            try:
+                _pw_ctx.stop()
+            except Exception:
+                pass
+
     # Сохраняем лог
     if log_data:
         save_screenshot_log(project_name, log_data)
         print(f"\n📝 Лог сохранен в CSV файл")
-    
+
     # Сохраняем список ссылок для ручной обработки
     if manual_screenshots:
         database_dir = get_project_database_dir(project_name)
@@ -336,13 +352,13 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
                 f.write(line + '\n')
         print(f"📋 Список для ручной обработки: {manual_file}")
         print(f"   Количество: {len(manual_screenshots)}")
-    
+
     # Итоговая статистика
     print(f"\n=== РЕЗУЛЬТАТЫ ===")
     print(f"✅ Успешно: {successful}")
     print(f"❌ Ошибок: {failed}")
     print(f"📁 Скриншоты сохранены в: {screenshots_dir}")
-    
+
     if failed > 0:
         print(f"\n💡 Совет: Для неудачных ссылок попробуйте:")
         print(f"   1. Открыть их вручную из manual_screenshots.txt")
@@ -351,7 +367,7 @@ def process_screenshots(project_name: str, max_links: int = None, headless: bool
 
 def main():
     import argparse
-    
+
     parser = argparse.ArgumentParser(
         description="Создание скриншотов веб-страниц из other_links.csv"
     )
@@ -373,18 +389,15 @@ def main():
         action="store_true",
         help="Показывать окно браузера (полезно для отладки)",
     )
-    
+
     args = parser.parse_args()
-    
-    project_name = args.project
-    if project_name is None:
-        project_name = get_project_name()
-    
+
+    project_name = args.project or os.getenv("PROJECT_NAME", "").strip() or get_project_name()
+
     headless = not args.headed
-    
+
     process_screenshots(project_name, max_links=args.test, headless=headless)
 
 
 if __name__ == "__main__":
     main()
-

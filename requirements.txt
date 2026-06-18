@@ -1,14 +1,18 @@
-requests>=2.31.0
+ requests>=2.31.0
+gspread
+google-auth
 selenium>=4.15.0
 webdriver-manager>=4.0.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
-opencv-contrib-python>=4.8.0
-numpy>=1.24.0
+opencv-contrib-python>=4.8.0,<4.11
+numpy>=1.24.0,<2
 yt-dlp
 pillow
 python-dotenv
 playwright
+browser-cookie3
+questionary
 flask>=3.0.0
-# rumps  # Опционально: иконка в трее на macOS
+rumps
 # mediapipe>=0.10.5  # Опционально для улучшенной детекции (требуется Python 3.10+)

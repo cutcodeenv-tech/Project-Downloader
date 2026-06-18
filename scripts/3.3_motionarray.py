@@ -7,22 +7,19 @@
 import os
 import csv
 from datetime import datetime
+from path_utils import get_data_dir, resolve_project_name
 
 
 def get_project_name():
-    """Запрашивает название проекта у пользователя"""
-    while True:
-        project_name = input("Введите название проекта: ").strip()
-        if project_name:
-            return project_name
-        print("❌ Название проекта не может быть пустым!")
+    """Возвращает название проекта из окружения или запрашивает его у пользователя"""
+    return resolve_project_name()
 
 
 def read_existing_links(motionarray_file):
     """Читает существующие ссылки из motionarray_links.txt"""
     if not os.path.exists(motionarray_file):
         return set()
-    
+
     try:
         with open(motionarray_file, 'r', encoding='utf-8') as f:
             links = set(line.strip() for line in f if line.strip())
@@ -51,78 +48,77 @@ def read_csv_links(csv_file):
 def main():
     """Основная функция скрипта"""
     print("=== СКРИПТ СОЗДАНИЯ ФАЙЛА ДЛЯ MOTIONARRAY ===")
-    
+
     # Запрашиваем название проекта
     project_name = get_project_name()
-    
+
     # Путь к CSV файлу с MotionArray ссылками
-    data_dir = '/Users/theseus/Projects/osnovateli_doc_framework/data'
-    project_dir = os.path.join(data_dir, project_name)
+    data_dir = get_data_dir(__file__)
+    project_dir = os.path.join(str(data_dir), project_name)
     database_dir = os.path.join(project_dir, 'database')
-    csv_file = os.path.join(database_dir, f'osnovateli_doc_{project_name}_motionarray_links.csv')
-    
+    csv_file = os.path.join(database_dir, f'os_doc_{project_name}_motionarray_links.csv')
+
     if not os.path.exists(csv_file):
         print(f"❌ Файл {csv_file} не найден!")
         return
-    
+
     # Читаем ссылки из CSV
     csv_links = read_csv_links(csv_file)
     if not csv_links:
         print("❌ В CSV файле не найдено ссылок!")
         return
-    
+
     print(f"📊 Всего ссылок в CSV: {len(csv_links)}")
-    
+
     # Читаем существующие ссылки из motionarray_links.txt
     motionarray_file = os.path.join(database_dir, 'motionarray_links.txt')
     existing_links = read_existing_links(motionarray_file)
-    
+
     if existing_links:
         print(f"📋 Существующих ссылок в motionarray_links.txt: {len(existing_links)}")
-        
+
         # Находим новые ссылки
         csv_links_set = set(csv_links)
         new_links = csv_links_set - existing_links
-        
+
         if not new_links:
             print("✓ Новых ссылок не обнаружено. Все ссылки уже есть в motionarray_links.txt")
             return
-        
+
         print(f"🆕 Обнаружено новых ссылок: {len(new_links)}")
-        
+
         # Создаем файл с датой и временем для новых ссылок
         now = datetime.now()
         timestamp = now.strftime("%d-%m-%Y_%H-%M")
         new_motionarray_file = os.path.join(database_dir, f'motionarray_links_{timestamp}.txt')
-        
+
         try:
             with open(new_motionarray_file, 'w', encoding='utf-8') as f:
                 # Записываем только новые ссылки
                 for link in sorted(new_links):
                     f.write(f"{link}\n")
-            
+
             print(f"✓ Создан новый файл с {len(new_links)} новыми ссылками")
             print(f"📁 Файл сохранен: {new_motionarray_file}")
-            
+
         except Exception as e:
             print(f"❌ Ошибка при создании файла: {e}")
-    
+
     else:
         # Первый запуск - создаем базовый файл motionarray_links.txt
         print("📝 Создаем первый файл motionarray_links.txt")
-        
+
         try:
             with open(motionarray_file, 'w', encoding='utf-8') as f:
                 for link in csv_links:
                     f.write(f"{link}\n")
-            
+
             print(f"✓ Создан файл motionarray_links.txt с {len(csv_links)} ссылками")
             print(f"📁 Файл сохранен: {motionarray_file}")
-            
+
         except Exception as e:
             print(f"❌ Ошибка при создании файла: {e}")
 
 
 if __name__ == "__main__":
     main()
-

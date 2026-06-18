@@ -6,700 +6,2396 @@
 <title>Osnovateli.doc Framework</title>
 <style>
   :root {
-    --bg: #0f1117;
-    --panel: #1a1d27;
-    --border: #2a2d3a;
-    --accent: #6366f1;
-    --accent-hover: #818cf8;
-    --green: #22c55e;
-    --red: #ef4444;
-    --yellow: #eab308;
-    --text: #e2e8f0;
-    --muted: #64748b;
-    --log-bg: #0a0c14;
+    --bg:#0f1117; --panel:#1a1d27; --panel2:#1e2130; --border:#2a2d3a;
+    --accent:#6366f1; --accent-h:#818cf8;
+    --green:#22c55e; --red:#ef4444; --yellow:#eab308; --orange:#f97316;
+    --text:#e2e8f0; --muted:#64748b; --log-bg:#0a0c14;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 14px; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
 
-  /* Header */
-  header { background: var(--panel); border-bottom: 1px solid var(--border); padding: 0 20px; height: 48px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-  header h1 { font-size: 15px; font-weight: 600; letter-spacing: .02em; color: var(--text); }
-  header h1 span { color: var(--accent); }
-  .header-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
-  .status-dot.running { background: var(--yellow); animation: pulse 1s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  header{background:var(--panel);border-bottom:1px solid var(--border);padding:0 20px;height:48px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  header h1{font-size:15px;font-weight:600;letter-spacing:.02em}
+  header h1 span{color:var(--accent)}
+  .hstatus{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+  .sdot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+  .sdot.running{background:var(--yellow);animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
-  /* Layout */
-  .layout { display: flex; flex: 1; overflow: hidden; }
+  .layout{display:flex;flex:1;overflow:hidden}
 
-  /* Sidebar */
-  aside { width: 240px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0; }
-  .sidebar-section { padding: 14px 16px 10px; border-bottom: 1px solid var(--border); }
-  .sidebar-section:last-child { border-bottom: none; flex: 1; overflow-y: auto; }
-  .sidebar-label { font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+  aside{width:230px;background:var(--panel);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;flex-shrink:0}
+  .slabel{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+  .plist{flex:1;overflow-y:auto;padding:0 14px 4px;display:flex;flex-direction:column;gap:2px}
+  .pi{padding:6px 8px;border-radius:5px;cursor:pointer;color:var(--muted);font-size:12px;transition:all .15s;display:flex;align-items:center;gap:5px}
+  .pi:hover{background:rgba(99,102,241,.1);color:var(--text)}
+  .pi.active{background:rgba(99,102,241,.18);color:var(--accent-h);font-weight:500}
+  .pi .dot{width:5px;height:5px;border-radius:50%;background:var(--muted);flex-shrink:0}
+  .pi.active .dot{background:var(--accent)}
+  .np-btn{margin-top:6px;width:100%;padding:6px;border:1px dashed var(--border);border-radius:5px;background:none;color:var(--muted);font-size:12px;cursor:pointer;transition:all .15s;display:flex;align-items:center;justify-content:center;gap:4px}
+  .np-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .dep-list{display:flex;flex-direction:column;gap:3px}
+  .di{display:flex;align-items:center;gap:6px;font-size:11px;padding:2px 0}
+  .dic{width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;flex-shrink:0}
+  .dic.ok{background:rgba(34,197,94,.2);color:var(--green)}
+  .dic.fail{background:rgba(239,68,68,.2);color:var(--red)}
+  .dn{flex:1}.dn.fail{color:var(--muted)}
+  .dt{font-size:9px;color:var(--muted);padding:1px 4px;border-radius:3px;background:var(--border)}
+  .inst-btn{margin-top:8px;width:100%;padding:7px;background:var(--accent);border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:500;cursor:pointer;transition:background .15s}
+  .inst-btn:hover{background:var(--accent-h)}
+  .inst-btn:disabled{opacity:.4;cursor:not-allowed}
 
-  /* Project list */
-  .project-list { display: flex; flex-direction: column; gap: 2px; }
-  .project-item { padding: 7px 10px; border-radius: 6px; cursor: pointer; color: var(--muted); font-size: 13px; transition: all .15s; display: flex; align-items: center; gap: 6px; }
-  .project-item:hover { background: rgba(99,102,241,.12); color: var(--text); }
-  .project-item.active { background: rgba(99,102,241,.2); color: var(--accent-hover); font-weight: 500; }
-  .project-item .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-  .project-item.active .dot { background: var(--accent); }
-  .new-project-btn { margin-top: 8px; width: 100%; padding: 7px; border: 1px dashed var(--border); border-radius: 6px; background: none; color: var(--muted); font-size: 12px; cursor: pointer; transition: all .15s; display: flex; align-items: center; justify-content: center; gap: 4px; }
-  .new-project-btn:hover { border-color: var(--accent); color: var(--accent); }
+  main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  .tabs{display:flex;gap:2px;padding:10px 18px 0;border-bottom:1px solid var(--border);background:var(--panel);flex-shrink:0}
+  .tab{padding:7px 14px;border-radius:6px 6px 0 0;cursor:pointer;font-size:12px;color:var(--muted);border:1px solid transparent;border-bottom:none;transition:all .15s}
+  .tab:hover{color:var(--text);background:rgba(255,255,255,.04)}
+  .tab.active{color:var(--text);background:var(--bg);border-color:var(--border);font-weight:500}
+  .content{flex:1;overflow-y:auto;padding:20px 24px}
+  .ptitle{font-size:15px;font-weight:600;margin-bottom:5px}
+  .pdesc{color:var(--muted);font-size:12px;margin-bottom:18px;line-height:1.5}
 
-  /* Dep list */
-  .dep-list { display: flex; flex-direction: column; gap: 4px; }
-  .dep-item { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; }
-  .dep-icon { width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 9px; flex-shrink: 0; }
-  .dep-icon.ok { background: rgba(34,197,94,.2); color: var(--green); }
-  .dep-icon.fail { background: rgba(239,68,68,.2); color: var(--red); }
-  .dep-name { flex: 1; color: var(--text); }
-  .dep-name.fail { color: var(--muted); }
-  .dep-type { font-size: 10px; color: var(--muted); padding: 1px 5px; border-radius: 3px; background: var(--border); }
-  .install-all-btn { margin-top: 10px; width: 100%; padding: 8px; background: var(--accent); border: none; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 500; cursor: pointer; transition: background .15s; }
-  .install-all-btn:hover { background: var(--accent-hover); }
-  .install-all-btn:disabled { opacity: .5; cursor: not-allowed; }
+  .fg{margin-bottom:14px}
+  label.lbl{display:block;font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em}
+  input[type="text"],textarea,select{width:100%;padding:8px 10px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:inherit;outline:none;transition:border-color .15s}
+  input[type="text"]:focus,textarea:focus,select:focus{border-color:var(--accent)}
+  textarea{resize:vertical;min-height:90px}
+  .row{display:flex;gap:14px}
+  .row .fg{flex:1}
+  .rg{display:flex;gap:8px}
+  .rc{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;cursor:pointer;transition:all .15s}
+  .rc:hover{border-color:var(--accent)}
+  .rc.sel{border-color:var(--accent);background:rgba(99,102,241,.1)}
+  .rc input{display:none}
+  .rc-l{font-size:12px;font-weight:500}
+  .rc-d{font-size:10px;color:var(--muted);margin-top:1px}
+  .cbr{display:flex;align-items:center;gap:7px;cursor:pointer;font-size:13px}
+  .cbr input[type="checkbox"]{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
+  .run-btn{padding:9px 22px;background:var(--accent);border:none;border-radius:7px;color:#fff;font-size:13px;font-weight:500;cursor:pointer;transition:all .15s;display:inline-flex;align-items:center;gap:7px}
+  .run-btn:hover{background:var(--accent-h)}
+  .run-btn:disabled{opacity:.35;cursor:not-allowed}
+  .srow{display:flex;gap:10px}
+  .srow input{flex:1}
+  .btn2{padding:8px 14px;background:var(--border);border:none;border-radius:6px;color:var(--text);font-size:12px;cursor:pointer;white-space:nowrap;transition:background .15s}
+  .btn2:hover{background:#3a3d4a}
 
-  /* Main */
-  main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .dep-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px}
+  .dc{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:10px 12px;display:flex;align-items:center;gap:9px}
+  .dc .ico{font-size:16px;width:24px;text-align:center}
+  .dc .inf{flex:1}
+  .dc .inf .nm{font-size:12px;font-weight:500}
+  .dc .inf .st{font-size:10px;color:var(--muted);margin-top:1px}
+  .dc.ok{border-color:rgba(34,197,94,.25)}
+  .dc.fail{border-color:rgba(239,68,68,.25)}
+  .badge{font-size:10px;padding:2px 6px;border-radius:10px;font-weight:600}
+  .dc.ok .badge{background:rgba(34,197,94,.15);color:var(--green)}
+  .dc.fail .badge{background:rgba(239,68,68,.15);color:var(--red)}
+  .inst-sec{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:14px 16px}
+  .inst-sec h3{font-size:13px;font-weight:600;margin-bottom:5px}
+  .inst-sec p{font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+  .ibtns{display:flex;flex-wrap:wrap;gap:7px}
+  .ibtn{padding:6px 12px;border-radius:5px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border);background:none;color:var(--text);transition:all .15s}
+  .ibtn:hover{background:var(--accent);border-color:var(--accent);color:#fff}
+  .flow-picker{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin:16px 0}
+  .flow-picker-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .flow-picker-title{font-size:12px;font-weight:600}
+  .flow-picker-hint{font-size:10px;color:var(--muted);margin-top:2px}
+  .flow-picker-actions{display:flex;gap:6px;flex-wrap:wrap}
+  .flow-btn{padding:5px 9px;border:1px solid var(--border);border-radius:5px;background:none;color:var(--muted);font-size:11px;cursor:pointer;transition:all .15s}
+  .flow-btn:hover{border-color:var(--accent);color:var(--text)}
+  .flow-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .flow-item{display:flex;gap:9px;align-items:flex-start;padding:9px 10px;border:1px solid var(--border);border-radius:7px;background:var(--panel2);cursor:pointer;transition:all .15s}
+  .flow-item:hover{border-color:var(--accent)}
+  .flow-item input{margin-top:2px;accent-color:var(--accent);cursor:pointer}
+  .flow-item.sel{border-color:var(--accent);background:rgba(99,102,241,.1)}
+  .flow-item-title{font-size:12px;font-weight:500}
+  .flow-item-meta{font-size:10px;color:var(--muted);margin-top:2px}
 
-  /* Tabs */
-  .tabs { display: flex; gap: 2px; padding: 12px 20px 0; border-bottom: 1px solid var(--border); background: var(--panel); flex-shrink: 0; }
-  .tab { padding: 8px 16px; border-radius: 6px 6px 0 0; cursor: pointer; font-size: 13px; color: var(--muted); border: 1px solid transparent; border-bottom: none; transition: all .15s; }
-  .tab:hover { color: var(--text); background: rgba(255,255,255,.04); }
-  .tab.active { color: var(--text); background: var(--bg); border-color: var(--border); font-weight: 500; }
+  /* Scripts tab */
+  .stage-section{margin-bottom:20px}
+  .section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+  .stage-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+  .stage-card{background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:10px 12px;display:flex;align-items:center;gap:10px;transition:border-color .15s}
+  .stage-card:hover{border-color:var(--accent)}
+  .stage-card .stitle{flex:1;font-size:12px;font-weight:500}
+  .stage-card .smeta{font-size:10px;color:var(--muted);margin-top:2px}
+  .stage-run{padding:5px 12px;background:var(--accent);border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:500;cursor:pointer;transition:background .15s;white-space:nowrap}
+  .stage-run:hover{background:var(--accent-h)}
+  .stage-run:disabled{opacity:.35;cursor:not-allowed}
+  .scripts-top{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:flex-end;gap:12px}
+  .scripts-top .fg{margin-bottom:0;flex:1}
 
-  /* Content */
-  .content { flex: 1; overflow-y: auto; padding: 24px 28px; }
-  .panel-title { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
-  .panel-desc { color: var(--muted); font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+  .jobbar{display:none;background:var(--panel2);border-bottom:1px solid var(--border);padding:10px 18px;gap:12px;align-items:center;flex-shrink:0}
+  .jobbar.visible{display:flex}
+  .job-spin{width:18px;height:18px;border-radius:50%;border:2px solid rgba(255,255,255,.18);border-top-color:var(--accent-h);animation:spin .8s linear infinite;flex-shrink:0}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .job-main{min-width:0;flex:1}
+  .job-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}
+  .job-title{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .job-meta{font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0}
+  .job-progress{height:5px;border-radius:999px;background:var(--border);overflow:hidden}
+  .job-progress-fill{height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent-h));transition:width .25s}
+  .job-sub{display:flex;justify-content:space-between;gap:12px;margin-top:5px;font-size:10px;color:var(--muted)}
+  .job-step{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .job-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+  .log-hdr{padding:5px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .log-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:flex;align-items:center;gap:5px}
+  .log-actions{display:flex;gap:6px;align-items:center}
+  .lbtn{padding:3px 9px;font-size:11px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer;transition:all .15s}
+  .lbtn:hover{border-color:var(--text);color:var(--text)}
+  .cancel-btn{padding:3px 10px;font-size:11px;background:rgba(239,68,68,.15);border:1px solid var(--red);border-radius:4px;color:var(--red);cursor:pointer;font-weight:600;transition:all .15s;display:none}
+  .cancel-btn:hover{background:var(--red);color:#fff}
+  .cancel-btn.visible{display:inline-block}
+  .pause-btn{padding:3px 10px;font-size:11px;background:rgba(234,179,8,.15);border:1px solid var(--yellow);border-radius:4px;color:var(--yellow);cursor:pointer;font-weight:600;transition:all .15s;display:none}
+  .pause-btn:hover{background:var(--yellow);color:#000}
+  .pause-btn.visible{display:inline-block}
+  .resume-btn{padding:4px 12px;font-size:12px;background:rgba(34,197,94,.15);border:1px solid var(--green);border-radius:4px;color:var(--green);cursor:pointer;font-weight:600;transition:all .15s;margin-top:6px;width:100%}
+  .resume-btn:hover{background:var(--green);color:#000}
+  .paused-badge{display:inline-block;font-size:10px;padding:1px 6px;border-radius:10px;background:rgba(234,179,8,.2);color:var(--yellow);border:1px solid var(--yellow);margin-left:4px;vertical-align:middle}
+  .log-page{display:flex;flex-direction:column;height:100%;min-height:0;padding:0}
+  .log-page .log-hdr{padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--border)}
+  .log-out{flex:1;overflow-y:auto;padding:12px 18px;font-family:"SF Mono","Fira Code",monospace;font-size:11px;line-height:1.6;background:var(--log-bg)}
+  .ll{white-space:pre-wrap;word-break:break-all}
+  .ll.error{color:var(--red)}
+  .ll.success{color:var(--green)}
+  .ll.info{color:#93c5fd}
+  .ll.cmd{color:var(--muted);font-style:italic}
+  .ll.done-ok{color:var(--green);font-weight:600}
+  .ll.done-fail{color:var(--red);font-weight:600}
+  .ll.cancelled{color:var(--orange);font-weight:600}
 
-  /* Forms */
-  .form-group { margin-bottom: 16px; }
-  label { display: block; font-size: 12px; font-weight: 500; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
-  input[type="text"], textarea, select {
-    width: 100%; padding: 9px 12px; background: var(--panel); border: 1px solid var(--border);
-    border-radius: 6px; color: var(--text); font-size: 13px; font-family: inherit; outline: none;
-    transition: border-color .15s;
+  .toast{position:fixed;bottom:16px;right:16px;padding:9px 14px;border-radius:7px;font-size:12px;z-index:1000;animation:fi .2s}
+  .toast.error{background:var(--red);color:#fff}
+  .toast.success{background:var(--green);color:#fff}
+  @keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+
+  ::-webkit-scrollbar{width:5px;height:5px}
+  ::-webkit-scrollbar-track{background:transparent}
+  ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+  ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+  code{background:var(--border);padding:1px 5px;border-radius:3px;font-size:11px}
+
+  /* ── Photo tab ───────────────────────────────────────────────────────────── */
+  .ph-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+  .ph-bulk{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .ph-bulk-count{font-size:11px;color:var(--muted);min-width:110px}
+  .ph-scale{width:auto;min-width:90px;padding:7px 10px;font-size:12px}
+  .ph-search{flex:1;min-width:140px;padding:7px 10px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;outline:none;transition:border-color .15s}
+  .ph-search:focus{border-color:var(--accent)}
+  .ph-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+  .ph-card{background:var(--panel);border:1px solid var(--border);border-radius:7px;overflow:hidden;cursor:pointer;transition:border-color .15s;position:relative}
+  .ph-card:hover{border-color:var(--accent)}
+  .ph-card.sel{border-color:var(--accent);box-shadow:0 0 0 1px rgba(99,102,241,.35) inset}
+  .ph-card-bar{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;align-items:center;z-index:3}
+  .ph-card-check{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
+  .ph-card-badge{font-size:10px;padding:2px 6px;border-radius:10px;background:rgba(15,17,23,.78);backdrop-filter:blur(4px);color:var(--text);border:1px solid rgba(255,255,255,.08)}
+  .ph-thumb{width:100%;aspect-ratio:16/9;object-fit:cover;display:block;background:var(--panel2)}
+  .ph-thumb-ph{width:100%;aspect-ratio:16/9;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px}
+  .ph-name{padding:5px 8px;font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ph-empty{color:var(--muted);font-size:13px;text-align:center;padding:40px 0;grid-column:1/-1}
+  .ph-editor-overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:500;display:none;align-items:center;justify-content:center}
+  .ph-editor-overlay.open{display:flex}
+  .ph-editor{background:var(--panel);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;width:min(920px,96vw);max-height:92vh;overflow:hidden}
+  .ph-editor-hdr{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+  .ph-editor-hdr .ph-ename{font-size:13px;font-weight:600}
+  .ph-editor-body{display:flex;flex:1;overflow:hidden;min-height:0}
+  .ph-preview-col{flex:1;overflow:hidden;display:flex;align-items:center;justify-content:center;background:var(--log-bg);padding:12px;min-width:0}
+  .ph-preview-wrap{position:relative;overflow:hidden;cursor:grab;user-select:none;border-radius:4px;background:#000;flex-shrink:0;width:640px;height:360px;isolation:isolate}
+  .ph-preview-wrap.dragging{cursor:grabbing}
+  .ph-preview-img{position:absolute;top:0;left:0;display:block;pointer-events:none;z-index:1}
+  .ph-mask-overlay{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;mix-blend-mode:screen;z-index:2;display:block;object-fit:cover}
+  .ph-controls{width:220px;padding:16px 14px;border-left:1px solid var(--border);overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column;gap:14px}
+  .ph-ctrl-group{display:flex;flex-direction:column;gap:6px}
+  .ph-ctrl-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+  .ph-ctrl-val{color:var(--text);font-variant-numeric:tabular-nums;font-weight:400;text-transform:none;letter-spacing:0}
+  .ph-range{width:100%;accent-color:var(--accent);cursor:pointer}
+  .ph-arrows{display:grid;grid-template-columns:1fr 1fr 1fr;gap:3px}
+  .ph-arr{padding:7px 4px;background:var(--panel2);border:1px solid var(--border);border-radius:4px;color:var(--text);font-size:13px;cursor:pointer;text-align:center;transition:background .1s;user-select:none}
+  .ph-arr:hover{background:var(--border)}
+  .ph-arr-empty{background:transparent;border:1px solid transparent}
+  .ph-editor-footer{padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0}
+
+  /* ── Service email badge ─────────────────────────────────────────────────── */
+  .sa-email{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:var(--panel2);border:1px solid var(--border);border-radius:5px;font-size:11px;color:var(--muted);cursor:pointer;transition:all .15s;user-select:none;white-space:nowrap;margin-top:6px}
+  .sa-email:hover{border-color:var(--accent);color:var(--text)}
+  .sa-email.copied{border-color:var(--green);color:var(--green)}
+  .sa-email-icon{font-size:12px;flex-shrink:0}
+
+  /* ── Газеты tab ──────────────────────────────────────────────────────────── */
+  .gz-shell{max-width:1400px;margin:0 auto}
+  .gz-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px}
+  .gz-subtitle{font-size:11px;color:var(--muted);margin-top:3px}
+  .gz-card{background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:12px}
+  .gz-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:9px}
+  .gz-source-toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:9px}
+  .gz-source-toolbar .gz-watch-label{margin-left:auto}
+  .gz-workspace{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:14px;margin-top:14px;align-items:start}
+  .gz-preview-card{min-width:0}
+  .gz-preview-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+  .gz-preview-hint{font-size:10px;color:var(--muted)}
+  .gz-settings{display:flex;flex-direction:column;gap:12px;position:sticky;top:0}
+  .gz-setting-block{padding-bottom:12px;border-bottom:1px solid var(--border)}
+  .gz-setting-block:last-child{padding-bottom:0;border-bottom:0}
+  .gz-setting-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .gz-position-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .gz-position-grid .gz-zoom-control{grid-column:1/-1}
+  .gz-nudge-row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px}
+  .gz-nudge-row .ph-arrows{width:108px;flex-shrink:0}
+  .gz-reset-btn{font-size:11px;padding:7px 10px}
+  .gz-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;margin-top:14px}
+  .gz-actions .run-btn{min-width:130px;justify-content:center}
+  .gz-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .gz-bar .gz-label{font-size:11px;color:var(--muted);margin-right:2px}
+  .gz-ver{min-width:44px;font-size:12px;padding:5px 10px}
+  .gz-ver.active{background:rgba(99,102,241,.25);border:1px solid var(--accent);color:var(--accent-h)}
+  .gz-preview-wrap{background:var(--log-bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;width:100%;aspect-ratio:16/9;position:relative;min-height:200px;cursor:grab;user-select:none}
+  .gz-preview-wrap.dragging{cursor:grabbing}
+  .gz-preview-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;z-index:2;pointer-events:none}
+  #gz-lottie{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .gz-color-input{width:32px;height:28px;padding:2px;border:1px solid var(--border);border-radius:5px;background:var(--panel);cursor:pointer}
+  .gz-eyedropper.active{background:var(--accent);color:#fff}
+  .gz-preview-wrap.eyedropper{cursor:crosshair}
+  .gz-queue{display:flex;gap:9px;overflow-x:auto;padding:9px;background:var(--log-bg);border:1px dashed var(--border);border-radius:7px;min-height:88px}
+  .gz-queue.dragover{border-color:var(--accent);background:rgba(99,102,241,.1)}
+  .gz-queue-empty{color:var(--muted);font-size:11px;align-self:center;padding:0 4px}
+  .gz-queue-item{position:relative;width:118px;min-width:118px;border:1px solid var(--border);border-radius:6px;overflow:hidden;background:var(--panel2);cursor:pointer}
+  .gz-queue-item.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .gz-queue-thumb{display:block;width:100%;height:64px;object-fit:cover;background:#000}
+  .gz-queue-name{font-size:10px;color:var(--muted);padding:5px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .gz-queue-remove{position:absolute;top:3px;right:3px;width:18px;height:18px;border:0;border-radius:9px;background:rgba(0,0,0,.72);color:#fff;cursor:pointer;font-size:12px;line-height:18px;padding:0}
+  .gz-queue-status{position:absolute;left:3px;top:3px;padding:2px 4px;border-radius:3px;background:rgba(0,0,0,.72);font-size:8px;color:#fff}
+  .gz-queue-version{position:absolute;right:3px;bottom:22px;padding:2px 5px;border-radius:3px;background:rgba(99,102,241,.9);font-size:9px;font-weight:700;color:#fff}
+  .gz-watch-label{font-size:10px;color:var(--muted);max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  @media(max-width:1000px){
+    .gz-workspace{grid-template-columns:1fr}
+    .gz-settings{position:static}
   }
-  input[type="text"]:focus, textarea:focus, select:focus { border-color: var(--accent); }
-  textarea { resize: vertical; min-height: 100px; }
-  .radio-group { display: flex; gap: 10px; }
-  .radio-card { flex: 1; padding: 10px 12px; border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: all .15s; }
-  .radio-card:hover { border-color: var(--accent); }
-  .radio-card.selected { border-color: var(--accent); background: rgba(99,102,241,.1); }
-  .radio-card input { display: none; }
-  .radio-card-label { font-size: 13px; font-weight: 500; }
-  .radio-card-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
-  .checkbox-row { display: flex; align-items: center; gap: 8px; cursor: pointer; }
-  .checkbox-row input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
-  .run-btn {
-    padding: 10px 24px; background: var(--accent); border: none; border-radius: 8px;
-    color: #fff; font-size: 14px; font-weight: 500; cursor: pointer; transition: all .15s;
-    display: inline-flex; align-items: center; gap: 8px;
-  }
-  .run-btn:hover { background: var(--accent-hover); }
-  .run-btn:disabled { opacity: .4; cursor: not-allowed; }
-  .run-btn.danger { background: var(--red); }
-  .row { display: flex; gap: 16px; }
-  .row .form-group { flex: 1; }
-
-  /* Settings */
-  .settings-grid { display: grid; gap: 16px; }
-  .settings-row { display: flex; gap: 12px; }
-  .settings-row input { flex: 1; }
-  .btn-secondary { padding: 9px 16px; background: var(--border); border: none; border-radius: 6px; color: var(--text); font-size: 13px; cursor: pointer; white-space: nowrap; transition: background .15s; }
-  .btn-secondary:hover { background: #3a3d4a; }
-
-  /* Dep tab */
-  .dep-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
-  .dep-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; gap: 10px; }
-  .dep-card .icon { font-size: 18px; width: 28px; text-align: center; }
-  .dep-card .info { flex: 1; }
-  .dep-card .info .name { font-size: 13px; font-weight: 500; }
-  .dep-card .info .status-text { font-size: 11px; color: var(--muted); margin-top: 1px; }
-  .dep-card.ok { border-color: rgba(34,197,94,.3); }
-  .dep-card.fail { border-color: rgba(239,68,68,.3); }
-  .dep-card .badge { font-size: 11px; padding: 2px 7px; border-radius: 12px; font-weight: 600; }
-  .dep-card.ok .badge { background: rgba(34,197,94,.15); color: var(--green); }
-  .dep-card.fail .badge { background: rgba(239,68,68,.15); color: var(--red); }
-  .install-section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
-  .install-section h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-  .install-section p { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.5; }
-  .install-btns { display: flex; flex-wrap: wrap; gap: 8px; }
-  .install-btn { padding: 7px 14px; border-radius: 6px; font-size: 12px; font-weight: 500; cursor: pointer; border: 1px solid var(--border); background: none; color: var(--text); transition: all .15s; }
-  .install-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
-
-  /* Log panel */
-  .log-panel { height: 220px; background: var(--log-bg); border-top: 1px solid var(--border); display: flex; flex-direction: column; flex-shrink: 0; }
-  .log-header { padding: 6px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
-  .log-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-  .log-actions { display: flex; gap: 8px; }
-  .log-btn { padding: 3px 10px; font-size: 11px; background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); cursor: pointer; transition: all .15s; }
-  .log-btn:hover { border-color: var(--text); color: var(--text); }
-  .log-output { flex: 1; overflow-y: auto; padding: 8px 16px; font-family: "SF Mono", "Fira Code", monospace; font-size: 12px; line-height: 1.6; }
-  .log-line { white-space: pre-wrap; word-break: break-all; }
-  .log-line.error { color: var(--red); }
-  .log-line.success { color: var(--green); }
-  .log-line.info { color: #93c5fd; }
-  .log-line.cmd { color: var(--muted); font-style: italic; }
-  .log-line.done-ok { color: var(--green); font-weight: 600; }
-  .log-line.done-fail { color: var(--red); font-weight: 600; }
-
-  /* Resize handle */
-  .resize-handle { height: 4px; background: var(--border); cursor: ns-resize; flex-shrink: 0; }
-  .resize-handle:hover { background: var(--accent); }
-
-  /* Empty state */
-  .empty { color: var(--muted); font-size: 13px; padding: 20px 0; }
-
-  /* Toast */
-  .toast { position: fixed; bottom: 260px; right: 20px; padding: 10px 16px; border-radius: 8px; font-size: 13px; z-index: 1000; animation: fadeIn .2s; }
-  .toast.error { background: var(--red); color: #fff; }
-  .toast.success { background: var(--green); color: #fff; }
-  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
-
-  /* Scrollbar */
-  ::-webkit-scrollbar { width: 6px; height: 6px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
 </style>
 </head>
 <body>
 
 <header>
-  <h1>📹 <span>Osnovateli</span>.doc Framework</h1>
-  <div class="header-status">
-    <div class="status-dot" id="statusDot"></div>
+  <h1>📹 <span>Osnovateli</span>.doc</h1>
+  <div class="hstatus">
+    <div class="sdot" id="statusDot"></div>
     <span id="statusText">готов</span>
   </div>
 </header>
 
 <div class="layout">
-
-  <!-- Sidebar -->
   <aside>
-    <div class="sidebar-section">
-      <div class="sidebar-label">Проект</div>
-      <div class="project-list" id="projectList">
-        {% if projects %}
-          {% for p in projects %}
-          <div class="project-item" data-name="{{ p }}" onclick="selectProject('{{ p }}')">
-            <div class="dot"></div>{{ p }}
-          </div>
-          {% endfor %}
-        {% else %}
-          <div class="empty">Нет проектов</div>
-        {% endif %}
-      </div>
-      <button class="new-project-btn" onclick="switchTab('new_project')">＋ Новый проект</button>
+    <div style="padding:12px 14px 8px;flex-shrink:0">
+      <div class="slabel">Проект</div>
     </div>
-
-    <div class="sidebar-section">
-      <div class="sidebar-label">Зависимости</div>
-      <div class="dep-list" id="sidebarDeps">
-        {% for name, info in deps.items() %}
-        <div class="dep-item">
-          <div class="dep-icon {{ 'ok' if info.ok else 'fail' }}">{{ '✓' if info.ok else '✗' }}</div>
-          <span class="dep-name {{ '' if info.ok else 'fail' }}">{{ name }}</span>
-          <span class="dep-type">{{ info.type }}</span>
-        </div>
-        {% endfor %}
+    <div class="plist" id="projectList">
+      {% if projects %}{% for p in projects %}
+      <div class="pi" data-name="{{ p.name }}" onclick="selectProject('{{ p.name }}')">
+        <div class="dot"></div>{{ p.name }}
       </div>
-      <button class="install-all-btn" id="sidebarInstallBtn" onclick="installAllDeps()">
-        Установить зависимости
-      </button>
+      {% endfor %}{% else %}
+      <div style="color:var(--muted);font-size:12px;padding:0 0 4px">Нет проектов</div>
+      {% endif %}
     </div>
+    <div style="padding:10px 14px;border-top:1px solid var(--border);display:grid;gap:8px;flex-shrink:0">
+      <button class="np-btn" onclick="createProjectQuick()">＋ Новый проект</button>
+      <button class="btn2" onclick="importProjectFolder()">Открыть проект…</button>
+      <button class="btn2" onclick="openSelectedProjectFolder()">Открыть папку проекта</button>
+      <div id="projectStateBox" style="font-size:11px;color:var(--muted);line-height:1.45">Проект не выбран</div>
+    </div>
+    <div id="sidebarDeps" style="display:none"></div>
+    <button id="sidebarInstBtn" onclick="installAllDeps()" style="display:none"></button>
   </aside>
 
-  <!-- Main -->
   <main>
     <div class="tabs">
-      <div class="tab active" data-tab="deps" onclick="switchTab('deps')">Зависимости</div>
-      <div class="tab" data-tab="new_project" onclick="switchTab('new_project')">0. Новый проект</div>
-      <div class="tab" data-tab="edits" onclick="switchTab('edits')">1. Правки</div>
-      <div class="tab" data-tab="direct_video" onclick="switchTab('direct_video')">2. Скачать видео</div>
-      <div class="tab" data-tab="settings" onclick="switchTab('settings')">Настройки</div>
+      <div class="tab active" data-tab="deps"         onclick="switchTab('deps')">Зависимости</div>
+      <div class="tab"        data-tab="new_project"  onclick="switchTab('new_project')">0. Новый проект</div>
+      <div class="tab"        data-tab="edits"        onclick="switchTab('edits')">1. Правки</div>
+      <div class="tab"        data-tab="direct_video" onclick="switchTab('direct_video')">2. Видео</div>
+      <div class="tab"        data-tab="scripts"      onclick="switchTab('scripts')">Скрипты</div>
+      <div class="tab"        data-tab="photo"        onclick="switchTab('photo')">Фото</div>
+      <div class="tab"        data-tab="gazety"       onclick="switchTab('gazety')">Газеты</div>
+      <div class="tab"        data-tab="log"          onclick="switchTab('log')">Лог</div>
+      <div class="tab"        data-tab="settings"     onclick="switchTab('settings')">Настройки</div>
     </div>
 
-    <!-- Tab: Dependencies -->
-    <div class="content" id="tab-deps">
-      <div class="panel-title">Зависимости</div>
-      <div class="panel-desc">Проверьте, что все необходимые компоненты установлены перед запуском пайплайна.</div>
+    <div class="jobbar" id="jobBar">
+      <div class="job-spin" aria-hidden="true"></div>
+      <div class="job-main">
+        <div class="job-top">
+          <div class="job-title" id="jobTitle">Задача выполняется</div>
+          <div class="job-meta" id="jobMeta">0%</div>
+        </div>
+        <div class="job-progress"><div class="job-progress-fill" id="jobProgressFill"></div></div>
+        <div class="job-sub">
+          <span class="job-step" id="jobStep">Подготовка...</span>
+          <span id="jobEta">ETA: оценивается</span>
+        </div>
+      </div>
+      <div class="job-actions">
+        <button class="pause-btn" id="pauseBtn" onclick="pauseJob()">⏸ Пауза</button>
+        <button class="cancel-btn" id="cancelBtn" onclick="cancelJob()">⛔ Отменить</button>
+        <button class="lbtn" onclick="switchTab('log')">Открыть лог</button>
+      </div>
+    </div>
 
+    <!-- ЗАВИСИМОСТИ -->
+    <div class="content" id="tab-deps">
+      <div class="ptitle">Зависимости</div>
+      <div class="pdesc">Проверьте, что все компоненты установлены перед запуском пайплайна.</div>
       <div class="dep-grid" id="depGrid">
         {% for name, info in deps.items() %}
-        <div class="dep-card {{ 'ok' if info.ok else 'fail' }}" id="depcard-{{ name | replace('.', '-') }}">
-          <div class="icon">{{ '✅' if info.ok else '❌' }}</div>
-          <div class="info">
-            <div class="name">{{ name }}</div>
-            <div class="status-text">{{ info.type }} · {{ 'установлен' if info.ok else 'не найден' }}</div>
-          </div>
+        <div class="dc {{ 'ok' if info.ok else 'fail' }}">
+          <div class="ico">{{ '✅' if info.ok else '❌' }}</div>
+          <div class="inf"><div class="nm">{{ name }}</div><div class="st">{{ info.type }} · {{ 'установлен' if info.ok else 'не найден' }}</div></div>
           <div class="badge">{{ 'OK' if info.ok else 'miss' }}</div>
         </div>
         {% endfor %}
       </div>
-
-      <div class="install-section">
+      <div class="inst-sec">
         <h3>Установка</h3>
-        <p>Python-пакеты берутся из <code>requirements.txt</code>. Системные инструменты (ffmpeg, Docker) устанавливаются через Homebrew на macOS.</p>
-        <div class="install-btns">
-          <button class="install-btn" onclick="runInstall('pip')">pip install -r requirements.txt</button>
-          <button class="install-btn" onclick="runInstall('playwright')">playwright install chromium</button>
-          <button class="install-btn" onclick="runInstall('ffmpeg')">Установить ffmpeg</button>
-          <button class="install-btn" onclick="refreshDeps()">↻ Обновить статус</button>
+        <p>Python-пакеты берутся из <code>requirements.txt</code>. Системные инструменты устанавливаются через Homebrew.</p>
+        <div class="ibtns">
+          <button class="ibtn" onclick="runInstall('pip')">pip install -r requirements.txt</button>
+          <button class="ibtn" onclick="runInstall('playwright')">playwright install chromium</button>
+          <button class="ibtn" onclick="runInstall('ffmpeg')">Установить ffmpeg</button>
+          <button class="ibtn" onclick="runInstall('realesrgan')">Установить Real-ESRGAN</button>
+          <button class="ibtn" onclick="refreshDeps()">↻ Обновить статус</button>
         </div>
       </div>
     </div>
 
-    <!-- Tab: New project -->
+    <!-- НОВЫЙ ПРОЕКТ -->
     <div class="content" id="tab-new_project" style="display:none">
-      <div class="panel-title">0. Новый проект</div>
-      <div class="panel-desc">Создаёт структуру папок, парсит Google таблицу, скачивает изображения и видео.</div>
-
+      <div class="ptitle">0. Новый проект</div>
+      <div class="pdesc">Создаёт папки, парсит Google таблицу, скачивает изображения и видео.</div>
       <div class="row">
-        <div class="form-group">
-          <label>Название проекта</label>
-          <input type="text" id="np-project" placeholder="например: ep01_startup" oninput="syncProject(this,'np')">
+        <div class="fg">
+          <label class="lbl">Название проекта</label>
+          <input type="text" id="np-project" placeholder="например: ep01_startup" oninput="syncProjectInput(this)">
         </div>
       </div>
-      <div class="form-group">
-        <label>Ссылка на Google таблицу</label>
+      <div class="fg">
+        <label class="lbl">Где создать проект</label>
+        <div class="srow">
+          <input type="text" id="np-project-root" value="{{ settings.projects_root }}">
+          <button class="btn2" onclick="chooseFolderInto('np-project-root','Выберите папку для новых проектов')">Выбрать</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Ссылка на Google таблицу</label>
         <input type="text" id="np-sheets" placeholder="https://docs.google.com/spreadsheets/d/...">
+        {% if service_email %}<div class="sa-email" onclick="copyEmail(this)" title="Нажмите чтобы скопировать"><span class="sa-email-icon">📋</span><span>{{ service_email }}</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Добавьте эту почту как редактора в Google таблицу (Поделиться → Редактор)</div>{% endif %}
       </div>
-      <div class="form-group">
-        <label>Режим обработки картинок</label>
-        <div class="radio-group">
-          <label class="radio-card selected" id="np-mode-crop" onclick="setMode('np','crop')">
-            <input type="radio" name="np-mode" value="crop" checked>
-            <div class="radio-card-label">Crop 16:9</div>
-            <div class="radio-card-desc">Обрезка под формат</div>
-          </label>
-          <label class="radio-card" id="np-mode-nano" onclick="setMode('np','nano')">
-            <input type="radio" name="np-mode" value="nano">
-            <div class="radio-card-label">Nano Banana 2</div>
-            <div class="radio-card-desc">AI-обработка через Krea</div>
-          </label>
-        </div>
+      <div class="fg">
+        <label class="lbl">Качество скачиваемого видео</label>
+        <select id="np-video-quality">
+          <option value="original">Оригинал</option>
+          <option value="1080">1080</option>
+          <option value="720">720</option>
+        </select>
       </div>
-      <div class="form-group">
-        <label class="checkbox-row">
-          <input type="checkbox" id="np-convert">
-          Конвертировать скачанные видео в MP4
-        </label>
-      </div>
-      <button class="run-btn" id="np-run-btn" onclick="runNewProject()">
-        ▶ Запустить пайплайн
-      </button>
-    </div>
-
-    <!-- Tab: Edits -->
-    <div class="content" id="tab-edits" style="display:none">
-      <div class="panel-title">1. Правки проекта</div>
-      <div class="panel-desc">Добавляет новые материалы в существующий проект. Новые файлы кладутся в подпапки <code>upd_YYYY-MM-DD/</code> — предыдущие волны не затрагиваются.</div>
-
-      <div class="row">
-        <div class="form-group">
-          <label>Проект для правок</label>
-          <select id="ed-project" onchange="syncProjectSelect(this,'ed')">
-            <option value="">— выберите проект —</option>
-            {% for p in projects %}
-            <option value="{{ p }}">{{ p }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Ссылка на Google таблицу (обновлённая)</label>
-        <input type="text" id="ed-sheets" placeholder="https://docs.google.com/spreadsheets/d/...">
-      </div>
-      <div class="form-group">
-        <label>Режим обработки картинок</label>
-        <div class="radio-group">
-          <label class="radio-card selected" id="ed-mode-crop" onclick="setMode('ed','crop')">
-            <input type="radio" name="ed-mode" value="crop" checked>
-            <div class="radio-card-label">Crop 16:9</div>
-            <div class="radio-card-desc">Обрезка под формат</div>
-          </label>
-          <label class="radio-card" id="ed-mode-nano" onclick="setMode('ed','nano')">
-            <input type="radio" name="ed-mode" value="nano">
-            <div class="radio-card-label">Nano Banana 2</div>
-            <div class="radio-card-desc">AI-обработка через Krea</div>
-          </label>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="checkbox-row">
-          <input type="checkbox" id="ed-convert">
-          Конвертировать скачанные видео в MP4
-        </label>
-      </div>
-      <button class="run-btn" id="ed-run-btn" onclick="runEdits()">
-        ▶ Запустить правки
-      </button>
-    </div>
-
-    <!-- Tab: Direct video -->
-    <div class="content" id="tab-direct_video" style="display:none">
-      <div class="panel-title">2. Скачать видео по ссылкам</div>
-      <div class="panel-desc">Вставьте ссылки на видео — каждая на новой строке. Видео скачаются в <code>video_direct/{session}/</code>, рядом создадутся PNG-плашки с источником.</div>
-
-      <div class="row">
-        <div class="form-group">
-          <label>Проект</label>
-          <select id="dv-project" onchange="syncProjectSelect(this,'dv')">
-            <option value="">— выберите проект —</option>
-            {% for p in projects %}
-            <option value="{{ p }}">{{ p }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Ссылки на видео (по одной на строку)</label>
-        <textarea id="dv-urls" placeholder="https://www.youtube.com/watch?v=...&#10;https://www.youtube.com/watch?v=..."></textarea>
-      </div>
-      <button class="run-btn" id="dv-run-btn" onclick="runDirectVideo()">
-        ▶ Скачать видео
-      </button>
-    </div>
-
-    <!-- Tab: Settings -->
-    <div class="content" id="tab-settings" style="display:none">
-      <div class="panel-title">Настройки</div>
-      <div class="panel-desc">Корневая папка фреймворка — там лежат <code>core/</code>, <code>scripts/</code>, <code>data/</code>.</div>
-
-      <div class="settings-grid">
-        <div class="form-group">
-          <label>Корневая папка (BASE_DIR)</label>
-          <div class="settings-row">
-            <input type="text" id="settings-base-dir" value="{{ settings.base_dir }}">
-            <button class="btn-secondary" onclick="saveSettings()">Сохранить</button>
+      <div class="flow-picker">
+        <div class="flow-picker-head">
+          <div>
+            <div class="flow-picker-title">Шаги для выполнения</div>
+            <div class="flow-picker-hint">Можно запускать не весь пайплайн, а только нужные части.</div>
+          </div>
+          <div class="flow-picker-actions">
+            <button class="flow-btn" onclick="setFlowSelection('np', 'all')">Всё</button>
+            <button class="flow-btn" onclick="setFlowSelection('np', 'default')">По умолчанию</button>
+            <button class="flow-btn" onclick="setFlowSelection('np', 'none')">Снять всё</button>
           </div>
         </div>
-        <div class="form-group">
-          <label>Папка с данными проектов</label>
-          <input type="text" id="settings-data-dir" value="{{ settings.base_dir }}/data" readonly style="opacity:.6">
+        <div class="flow-grid">
+          {% for step in flow_steps %}
+          <label class="flow-item sel" data-flow-item="np" data-step-id="{{ step.id }}">
+            <input type="checkbox" class="flow-check" data-flow="np" value="{{ step.id }}" {% if step.id in default_new_project_steps %}checked{% endif %} onchange="syncFlowCards('np')">
+            <div>
+              <div class="flow-item-title">{{ step.title }}</div>
+              <div class="flow-item-meta">{{ 'нужна таблица' if step.get('needs_sheets') else ('стадия пайплайна' if step.kind == 'stage' else 'дополнительный скрипт') }}</div>
+            </div>
+          </label>
+          {% endfor %}
         </div>
+      </div>
+      <button class="run-btn" id="np-run" onclick="runNewProject()">▶ Запустить пайплайн</button>
+    </div>
+
+    <!-- ПРАВКИ -->
+    <div class="content" id="tab-edits" style="display:none">
+      <div class="ptitle">1. Правки проекта</div>
+      <div class="pdesc">Добавляет новые материалы. Файлы идут в <code>upd_YYYY-MM-DD/</code> — предыдущие волны не затрагиваются.</div>
+      <div class="fg">
+        <label class="lbl">Проект</label>
+        <select id="ed-project" onchange="syncProjectSelect(this)">
+          <option value="">— выберите проект —</option>
+          {% for p in projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="fg">
+        <label class="lbl">Ссылка на Google таблицу (обновлённая)</label>
+        <input type="text" id="ed-sheets" placeholder="https://docs.google.com/spreadsheets/d/...">
+        {% if service_email %}<div class="sa-email" onclick="copyEmail(this)" title="Нажмите чтобы скопировать"><span class="sa-email-icon">📋</span><span>{{ service_email }}</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Добавьте эту почту как редактора в Google таблицу (Поделиться → Редактор)</div>{% endif %}
+      </div>
+      <div class="fg">
+        <label class="lbl">Качество скачиваемого видео</label>
+        <select id="ed-video-quality">
+          <option value="original">Оригинал</option>
+          <option value="1080">1080</option>
+          <option value="720">720</option>
+        </select>
+      </div>
+      <div class="flow-picker">
+        <div class="flow-picker-head">
+          <div>
+            <div class="flow-picker-title">Шаги для правок</div>
+            <div class="flow-picker-hint">Например, можно прогнать только таблицу, только XML или только видео-часть.</div>
+          </div>
+          <div class="flow-picker-actions">
+            <button class="flow-btn" onclick="setFlowSelection('ed', 'all')">Всё</button>
+            <button class="flow-btn" onclick="setFlowSelection('ed', 'default')">По умолчанию</button>
+            <button class="flow-btn" onclick="setFlowSelection('ed', 'none')">Снять всё</button>
+          </div>
+        </div>
+        <div class="flow-grid">
+          {% for step in flow_steps %}
+          {% if step.id != 'stage_structure' %}
+          <label class="flow-item sel" data-flow-item="ed" data-step-id="{{ step.id }}">
+            <input type="checkbox" class="flow-check" data-flow="ed" value="{{ step.id }}" {% if step.id in default_edits_steps %}checked{% endif %} onchange="syncFlowCards('ed')">
+            <div>
+              <div class="flow-item-title">{{ step.title }}</div>
+              <div class="flow-item-meta">{{ 'нужна таблица' if step.get('needs_sheets') else ('стадия пайплайна' if step.kind == 'stage' else 'дополнительный скрипт') }}</div>
+            </div>
+          </label>
+          {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      <button class="run-btn" id="ed-run" onclick="runEdits()">▶ Запустить правки</button>
+    </div>
+
+    <!-- ПРЯМОЕ ВИДЕО -->
+    <div class="content" id="tab-direct_video" style="display:none">
+      <div class="ptitle">2. Скачать видео по ссылкам</div>
+      <div class="pdesc">Видео скачиваются в <code>video_direct/{session}/</code>, рядом создаются PNG-плашки источника.</div>
+      <div class="fg">
+        <label class="lbl">Проект</label>
+        <select id="dv-project" onchange="syncProjectSelect(this)">
+          <option value="">— выберите проект —</option>
+          {% for p in projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="fg">
+        <label class="lbl">Ссылки на видео (по одной на строку)</label>
+        <textarea id="dv-urls" placeholder="https://www.youtube.com/watch?v=...&#10;https://www.youtube.com/watch?v=..."></textarea>
+      </div>
+      <div class="fg">
+        <label class="lbl">Качество скачиваемого видео</label>
+        <select id="dv-video-quality">
+          <option value="original">Оригинал</option>
+          <option value="1080">1080</option>
+          <option value="720">720</option>
+        </select>
+      </div>
+      <button class="run-btn" id="dv-run" onclick="runDirectVideo()">▶ Скачать видео</button>
+    </div>
+
+    <!-- СКРИПТЫ -->
+    <div class="content" id="tab-scripts" style="display:none">
+      <div class="ptitle">Скрипты по стадиям</div>
+      <div class="pdesc">Запуск отдельных шагов пайплайна. Выберите проект — он применится ко всем стадиям ниже.</div>
+
+      <div class="scripts-top">
+        <div class="fg">
+          <label class="lbl">Проект</label>
+          <select id="sc-project" onchange="syncProjectSelect(this)">
+            <option value="">— выберите —</option>
+            {% for p in projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="stage-section">
+        <div class="section-title">Основной пайплайн</div>
+        <div class="stage-grid">
+          {% for stage in core_stages %}
+          <div class="stage-card">
+            <div style="flex:1">
+              <div class="stitle">{{ stage.title }}</div>
+              <div class="smeta">
+                {%- if stage.get('needs_sheets') %}требует таблицу
+                {%- elif stage.get('needs_project') %}нужен проект
+                {%- else %}без проекта{% endif %}
+              </div>
+            </div>
+            {% if stage.get('needs_sheets') %}
+            <button class="stage-run" onclick="runStageWithSheets('{{ stage.run_mode }}')">▶</button>
+            {% else %}
+            <button class="stage-run" onclick="runStage('{{ stage.run_mode }}', {{ 'true' if stage.get('needs_project') else 'false' }})">▶</button>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="stage-section">
+        <div class="section-title">Отдельные скрипты</div>
+        <div class="stage-grid">
+          {% for task in script_tasks %}
+          <div class="stage-card">
+            <div style="flex:1">
+              <div class="stitle">{{ task.title }}</div>
+              <div class="smeta">{{ task.script }}</div>
+            </div>
+            <button class="stage-run" onclick="runScript('{{ task.id }}', {{ 'true' if task.get('needs_project', True) else 'false' }})">▶</button>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ФОТО -->
+    <div class="content" id="tab-photo" style="display:none">
+      <div class="ptitle">Редактор фото-плейсхолдеров</div>
+      <div class="pdesc">Выберите готовый плейсхолдер, откорректируйте позицию и масштаб изображения внутри чёрной области маски, затем нажмите «Рендер».</div>
+      <div class="ph-toolbar">
+        <div class="fg" style="margin:0;flex:0 0 170px">
+          <select id="ph-project" onchange="phLoadList()">
+            <option value="">— проект —</option>
+            {% for p in projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="fg" style="margin:0;flex:0 0 160px">
+          <input type="text" id="ph-subdir" placeholder="волна (пусто = базовая)" style="padding:7px 10px;font-size:12px" onchange="phLoadList()">
+        </div>
+        <input type="text" class="ph-search" id="phSearch" placeholder="поиск..." oninput="phFilter()">
+        <div class="ph-bulk">
+          <span class="ph-bulk-count" id="phSelectedCount">Выбрано: 0</span>
+          <button class="btn2" onclick="phSelectVisible(true)">Выбрать всё</button>
+          <button class="btn2" onclick="phSelectVisible(false)">Снять выбор</button>
+          <select id="phUpscaleScale" class="ph-scale">
+            <option value="2">Апскейл 2x</option>
+            <option value="4">Апскейл 4x</option>
+          </select>
+          <button class="run-btn" style="padding:8px 14px;font-size:12px" onclick="phUpscaleSelected()">⚡ Апскейлить выбранные</button>
+        </div>
+        <button class="btn2" onclick="phLoadList()">↺ Обновить</button>
+      </div>
+      <div id="phGrid" class="ph-grid">
+        <div class="ph-empty">Выберите проект</div>
+      </div>
+    </div>
+
+    <!-- ГАЗЕТЫ -->
+    <div class="content" id="tab-gazety" style="display:none">
+      <div class="gz-shell">
+        <div class="gz-heading">
+          <div>
+            <div class="ptitle">Газеты</div>
+            <div class="gz-subtitle">Добавьте фотографии, настройте кадр и экспортируйте одну или всю очередь.</div>
+          </div>
+        </div>
+
+        <img id="gz-photo-img" src="/api/gazety/photo_src" style="display:none" alt="">
+        <input type="file" id="gz-file-img1" accept="image/*" multiple style="display:none" onchange="gzUploadPhoto(this)">
+
+        <section class="gz-card">
+          <div class="gz-section-title">Фотографии</div>
+          <div class="gz-source-toolbar">
+            <button class="btn2" onclick="document.getElementById('gz-file-img1').click()">＋ Добавить фото</button>
+            <button class="btn2" id="gz-watch-btn" onclick="gzChooseWatchFolder()">Папка отслеживания</button>
+            <button class="btn2" onclick="gzAssignVersions()">Раздать v2–v5</button>
+            <span class="gz-watch-label" id="gz-watch-label">Папка не выбрана</span>
+          </div>
+          <div class="gz-queue" id="gz-queue" ondragenter="gzDragEnter(event)" ondragover="gzDragOver(event)" ondragleave="gzDragLeave(event)" ondrop="gzDrop(event)">
+            <div class="gz-queue-empty">Перетащите фотографии сюда или добавьте их кнопкой</div>
+          </div>
+        </section>
+
+        <div class="gz-workspace">
+          <section class="gz-card gz-preview-card">
+            <div class="gz-preview-toolbar">
+              <div class="gz-section-title" style="margin:0">Превью</div>
+              <div class="gz-preview-hint">Перетаскивание — положение · Колесо — масштаб</div>
+            </div>
+            <div class="gz-preview-wrap" id="gz-preview-wrap">
+              <div class="gz-preview-placeholder" id="gz-placeholder">Загрузка превью...</div>
+              <div id="gz-lottie"></div>
+            </div>
+          </section>
+
+          <aside class="gz-card gz-settings">
+            <div class="gz-setting-block">
+              <div class="gz-section-title">Шаблон</div>
+              <div class="gz-bar">
+                <button class="btn2 gz-ver active" data-v="2" onclick="gzSelectVersion(2)">v2</button>
+                <button class="btn2 gz-ver" data-v="3" onclick="gzSelectVersion(3)">v3</button>
+                <button class="btn2 gz-ver" data-v="4" onclick="gzSelectVersion(4)">v4</button>
+                <button class="btn2 gz-ver" data-v="5" onclick="gzSelectVersion(5)">v5</button>
+              </div>
+            </div>
+
+            <div class="gz-setting-block">
+              <div class="gz-section-title">Положение фотографии</div>
+              <div class="gz-position-grid">
+                <div class="ph-ctrl-group gz-zoom-control">
+                  <div class="ph-ctrl-label">Масштаб <span class="ph-ctrl-val" id="gz-zoom-val">100%</span></div>
+                  <input type="range" class="ph-range" id="gz-zoom-range" min="5" max="800" step="1" value="100" oninput="gzUpdateFromSlider()">
+                </div>
+                <div class="ph-ctrl-group">
+                  <div class="ph-ctrl-label">X <span class="ph-ctrl-val" id="gz-x-val">0 px</span></div>
+                  <input type="range" class="ph-range" id="gz-x-range" min="0" max="0" step="1" value="0" oninput="gzUpdateFromSlider()">
+                </div>
+                <div class="ph-ctrl-group">
+                  <div class="ph-ctrl-label">Y <span class="ph-ctrl-val" id="gz-y-val">0 px</span></div>
+                  <input type="range" class="ph-range" id="gz-y-range" min="0" max="0" step="1" value="0" oninput="gzUpdateFromSlider()">
+                </div>
+              </div>
+              <div class="gz-nudge-row">
+                <div class="ph-arrows">
+                  <div class="ph-arr-empty"></div><div class="ph-arr" onclick="gzNudge(0,-10)">▲</div><div class="ph-arr-empty"></div>
+                  <div class="ph-arr" onclick="gzNudge(-10,0)">◄</div><div class="ph-arr" onclick="gzReset()" title="Сбросить">⊙</div><div class="ph-arr" onclick="gzNudge(10,0)">►</div>
+                  <div class="ph-arr-empty"></div><div class="ph-arr" onclick="gzNudge(0,10)">▼</div><div class="ph-arr-empty"></div>
+                </div>
+                <button class="btn2 gz-reset-btn" onclick="gzReset()">Сбросить положение</button>
+              </div>
+            </div>
+
+            <div class="gz-setting-block">
+              <div class="gz-section-title">Фон фотографии</div>
+              <div class="gz-setting-row">
+                <input type="color" class="gz-color-input" id="gz-bg-color" value="#000000" oninput="gzSetBackgroundColor(this.value)" title="Выбрать цвет фона вручную">
+                <button class="btn2 gz-eyedropper" id="gz-eyedropper-btn" onclick="gzToggleEyedropper()" title="Выбрать настоящий цвет из исходной фотографии">Пипетка</button>
+              </div>
+              <div class="gz-preview-hint" style="margin-top:7px">Пипетка берет цвет из исходного изображения без газетной текстуры.</div>
+            </div>
+          </aside>
+        </div>
+
+        <div id="gz-render-status" style="display:none;margin:10px 0 0;font-size:11px;color:var(--muted)">
+          <div id="gz-render-status-text"></div>
+          <div style="height:3px;background:var(--border);border-radius:2px;margin-top:4px;overflow:hidden">
+            <div id="gz-render-progress-bar" style="height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%"></div>
+          </div>
+        </div>
+
+        <div class="gz-actions">
+          <button class="btn2" onclick="gzAssignVersions()">Раздать шаблоны</button>
+          <button class="run-btn danger" id="gz-cancel-render-btn" onclick="gzCancelRender()" style="display:none">Отменить рендер</button>
+          <button class="run-btn" id="gz-render-btn" onclick="gzRender()">Рендер выбранной</button>
+          <button class="run-btn" id="gz-render-all-btn" onclick="gzRenderAll()">Рендер всей очереди</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- НАСТРОЙКИ -->
+    <div class="content" id="tab-settings" style="display:none">
+      <div class="ptitle">Настройки</div>
+      <div class="pdesc">Корневая папка фреймворка хранит код. Папка проектов может быть вынесена отдельно и лежать где угодно.</div>
+      <div class="fg">
+        <label class="lbl">Корневая папка (BASE_DIR)</label>
+        <div class="srow">
+          <input type="text" id="settings-base" value="{{ settings.base_dir }}">
+          <button class="btn2" onclick="saveSettings()">Сохранить</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Папка с проектами (PROJECTS_ROOT)</label>
+        <div class="srow">
+          <input type="text" id="settings-projects-root" value="{{ settings.projects_root }}">
+          <button class="btn2" onclick="chooseFolderInto('settings-projects-root','Выберите корень проектов')">Выбрать</button>
+        </div>
+      </div>
+      <div class="fg">
+        <label class="lbl">Файл cookies.txt для YouTube</label>
+        <div class="srow">
+          <input type="text" id="settings-cookies-file" value="{{ settings.cookies_file }}">
+          <button class="btn2" onclick="chooseFileInto('settings-cookies-file','Выберите cookies.txt','txt')">Выбрать</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Если файл указан, он используется для всех загрузок видео как основной источник cookies.</div>
+      </div>
+    </div>
+
+    <!-- ЛОГ -->
+    <div class="content log-page" id="tab-log" style="display:none">
+      <div class="log-hdr">
+        <div class="log-title">
+          <span id="logDot" style="color:var(--green)">⬤</span> Лог выполнения
+        </div>
+        <div class="log-actions">
+          <button class="lbtn" onclick="clearLog()">Очистить экран</button>
+          <button class="lbtn" onclick="scrollLogToBottom()">Вниз</button>
+        </div>
+      </div>
+      <div class="log-out" id="logOut">
+        <div class="ll info">— ожидание задачи —</div>
       </div>
     </div>
   </main>
 </div>
 
-<!-- Log panel -->
-<div class="resize-handle" id="resizeHandle"></div>
-<div class="log-panel" id="logPanel">
-  <div class="log-header">
-    <div class="log-title">
-      <span id="logIndicator">⬤</span> Лог выполнения
+<!-- Photo editor modal -->
+<div id="phEditorOverlay" class="ph-editor-overlay">
+  <div class="ph-editor">
+    <div class="ph-editor-hdr">
+      <span class="ph-ename" id="phEditorName"></span>
+      <button class="btn2" onclick="phCloseEditor()" style="padding:4px 10px;font-size:13px">✕</button>
     </div>
-    <div class="log-actions">
-      <button class="log-btn" onclick="clearLog()">Очистить</button>
-      <button class="log-btn" onclick="toggleLog()">Свернуть</button>
+    <div class="ph-editor-body">
+      <div class="ph-preview-col">
+        <div id="phPreviewWrap" class="ph-preview-wrap">
+          <img id="phPreviewImg" class="ph-preview-img" alt="">
+          <video class="ph-mask-overlay" autoplay muted loop playsinline onerror="this.style.display='none'">
+            <source src="/api/mask_preview" type="video/mp4">
+          </video>
+        </div>
+      </div>
+      <div class="ph-controls">
+        <div class="ph-ctrl-group">
+          <div class="ph-ctrl-label">Масштаб <span class="ph-ctrl-val" id="phZoomVal">100%</span></div>
+          <input type="range" class="ph-range" id="phZoomRange" min="25" max="300" step="1" value="100" oninput="phUpdateFromSlider()">
+        </div>
+        <div class="ph-ctrl-group">
+          <div class="ph-ctrl-label">X смещение <span class="ph-ctrl-val" id="phXVal">0 px</span></div>
+          <input type="range" class="ph-range" id="phXRange" min="0" max="0" step="1" value="0" oninput="phUpdateFromSlider()">
+        </div>
+        <div class="ph-ctrl-group">
+          <div class="ph-ctrl-label">Y смещение <span class="ph-ctrl-val" id="phYVal">0 px</span></div>
+          <input type="range" class="ph-range" id="phYRange" min="0" max="0" step="1" value="0" oninput="phUpdateFromSlider()">
+        </div>
+        <div class="ph-ctrl-group">
+          <div class="ph-ctrl-label">Точная коррекция</div>
+          <div class="ph-arrows">
+            <div class="ph-arr-empty"></div>
+            <div class="ph-arr" onclick="phNudge(0,-10)" title="-10px по Y">▲</div>
+            <div class="ph-arr-empty"></div>
+            <div class="ph-arr" onclick="phNudge(-10,0)" title="-10px по X">◄</div>
+            <div class="ph-arr" onclick="phResetPos()" title="сбросить X/Y">⊙</div>
+            <div class="ph-arr" onclick="phNudge(10,0)"  title="+10px по X">►</div>
+            <div class="ph-arr-empty"></div>
+            <div class="ph-arr" onclick="phNudge(0,10)"  title="+10px по Y">▼</div>
+            <div class="ph-arr-empty"></div>
+          </div>
+        </div>
+        <button class="btn2" style="width:100%;font-size:11px" onclick="phResetAll()">Сбросить всё</button>
+      </div>
+    </div>
+    <div class="ph-editor-footer">
+      <button class="btn2" onclick="phCloseEditor()">Закрыть</button>
+      <button class="run-btn" id="phEncodeBtn" onclick="phEncode()">⚙ Рендер</button>
     </div>
   </div>
-  <div class="log-output" id="logOutput">
-    <div class="log-line info">— Ожидание задачи —</div>
+</div>
+
+<!-- Modal: create new project -->
+<div id="createProjectModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:24px;width:480px;max-width:92vw">
+    <div style="font-size:14px;font-weight:600;margin-bottom:16px">Новый проект</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Название проекта</div>
+    <input type="text" id="modal-new-project-name" placeholder="например: ep01_startup" style="margin-bottom:12px">
+    <div style="font-size:12px;color:var(--muted);margin-bottom:4px">Папка для проектов</div>
+    <div style="display:flex;gap:6px;margin-bottom:20px">
+      <input type="text" id="modal-new-project-root" placeholder="/путь/к/папке" style="flex:1;min-width:0">
+      <button class="btn2" onclick="chooseCreateProjectFolder()" style="white-space:nowrap;flex-shrink:0">Выбрать…</button>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn2" onclick="closeCreateProjectModal()">Отмена</button>
+      <button class="run-btn" id="modal-create-btn" onclick="confirmCreateProject()">Создать</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: sheets URL for stage_parse_links -->
+<div id="sheetsModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:200;align-items:center;justify-content:center">
+  <div style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:24px;width:480px;max-width:92vw">
+    <div style="font-size:14px;font-weight:600;margin-bottom:14px">Ссылка на Google таблицу</div>
+    <input type="text" id="modal-sheets" placeholder="https://docs.google.com/spreadsheets/d/..." style="margin-bottom:8px">
+    {% if service_email %}<div class="sa-email" onclick="copyEmail(this)" title="Нажмите чтобы скопировать" style="margin-bottom:4px"><span class="sa-email-icon">📋</span><span>{{ service_email }}</span></div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Добавьте эту почту как редактора в Google таблицу (Поделиться → Редактор)</div>{% endif %}
+    <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn2" onclick="closeModal()">Отмена</button>
+      <button class="run-btn" onclick="confirmModalStage()">▶ Запустить</button>
+    </div>
   </div>
 </div>
 
 <script>
-  // ── State ──────────────────────────────────────────────────────────
-  let selectedProject = null;
-  let currentMode = { np: 'crop', ed: 'crop' };
+  let selProject = null;
+  let imgMode = { np:'crop', ed:'crop' };
   let isRunning = false;
-  let logCollapsed = false;
   let es = null;
+  let pendingStageMode = null;
+  let lastEventSeq = 0;
+  const defaultFlowSteps = {
+    np: {{ default_new_project_steps|tojson }},
+    ed: {{ default_edits_steps|tojson }},
+  };
 
-  // ── Tab switching ──────────────────────────────────────────────────
   function switchTab(name) {
     document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-    document.querySelectorAll('.content').forEach(c => {
-      c.style.display = c.id === 'tab-' + name ? '' : 'none';
-    });
+    document.querySelectorAll('.content').forEach(c => c.style.display = c.id === 'tab-'+name ? '' : 'none');
+    if (name === 'photo') phLoadList();
+    if (name === 'gazety' && !_gzAnim && !_gzLottieLoading) {
+      requestAnimationFrame(() => gzLoadPreview());
+    }
+    if (name === 'log') requestAnimationFrame(() => preserveLogPosition());
   }
 
-  // ── Project selection ──────────────────────────────────────────────
   function selectProject(name) {
-    selectedProject = name;
-    document.querySelectorAll('.project-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.name === name);
-    });
-    // Sync all project inputs
-    ['np-project'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = name;
-    });
-    ['ed-project', 'dv-project'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) el.value = name;
+    selProject = name;
+    document.querySelectorAll('.pi').forEach(el => el.classList.toggle('active', el.dataset.name === name));
+    const np = document.getElementById('np-project'); if(np) np.value = name;
+    ['ed-project','dv-project','sc-project','ph-project'].forEach(id => { const e = document.getElementById(id); if(e) e.value = name; });
+    const phTab = document.getElementById('tab-photo');
+    if (phTab && phTab.style.display !== 'none') phLoadList();
+    loadProjectState(name);
+  }
+
+  function syncProjectInput(input) {
+    selProject = input.value;
+    document.querySelectorAll('.pi').forEach(el => el.classList.remove('active'));
+  }
+
+  function syncProjectSelect(sel) {
+    selProject = sel.value;
+    document.querySelectorAll('.pi').forEach(el => el.classList.toggle('active', el.dataset.name === sel.value));
+    ['ed-project','dv-project','sc-project','ph-project','np-project'].forEach(id => {
+      if(id === sel.id) return;
+      const e = document.getElementById(id);
+      if(!e) return;
+      if(e.tagName === 'SELECT') e.value = sel.value;
     });
   }
 
-  function syncProject(input, prefix) {
-    selectedProject = input.value;
-    document.querySelectorAll('.project-item').forEach(el => el.classList.remove('active'));
-  }
-
-  function syncProjectSelect(sel, prefix) {
-    selectedProject = sel.value;
-    document.querySelectorAll('.project-item').forEach(el => {
-      el.classList.toggle('active', el.dataset.name === sel.value);
-    });
-  }
-
-  // ── Image mode ─────────────────────────────────────────────────────
   function setMode(prefix, mode) {
-    currentMode[prefix] = mode;
-    ['crop', 'nano'].forEach(m => {
+    imgMode[prefix] = mode;
+    ['crop','nano'].forEach(m => {
       const el = document.getElementById(`${prefix}-mode-${m}`);
-      if (el) el.classList.toggle('selected', m === mode);
+      if(el) el.classList.toggle('sel', m === mode);
     });
   }
 
-  // ── Run actions ────────────────────────────────────────────────────
+  function getSelectedFlowSteps(flow) {
+    return Array.from(document.querySelectorAll(`.flow-check[data-flow="${flow}"]:checked`)).map(el => el.value);
+  }
+
+  function syncFlowCards(flow) {
+    document.querySelectorAll(`[data-flow-item="${flow}"]`).forEach(card => {
+      const checkbox = card.querySelector('.flow-check');
+      card.classList.toggle('sel', !!checkbox?.checked);
+    });
+  }
+
+  function setFlowSelection(flow, mode) {
+    const selected = mode === 'default'
+      ? new Set(defaultFlowSteps[flow] || [])
+      : mode === 'all'
+      ? new Set(Array.from(document.querySelectorAll(`.flow-check[data-flow="${flow}"]`)).map(el => el.value))
+      : new Set();
+    document.querySelectorAll(`.flow-check[data-flow="${flow}"]`).forEach(el => {
+      el.checked = selected.has(el.value);
+    });
+    syncFlowCards(flow);
+  }
+
+  async function chooseFolderInto(inputId, promptText) {
+    const input = document.getElementById(inputId);
+    const r = await post('/api/choose_folder', { current_path: input?.value || '', prompt: promptText });
+    if(r.error) return showToast(r.error,'error');
+    if(input) input.value = r.path;
+  }
+
+  async function chooseFileInto(inputId, promptText, fileType='') {
+    const input = document.getElementById(inputId);
+    const r = await post('/api/choose_file', { current_path: input?.value || '', prompt: promptText, file_type: fileType });
+    if(r.error) return showToast(r.error,'error');
+    if(input) input.value = r.path;
+  }
+
   async function runNewProject() {
     const pname = document.getElementById('np-project').value.trim();
     const sheets = document.getElementById('np-sheets').value.trim();
-    if (!pname) return showToast('Укажите название проекта', 'error');
-    if (!sheets) return showToast('Укажите ссылку на Google таблицу', 'error');
-
-    const res = await post('/api/run/new_project', {
-      project_name: pname,
-      sheets_url: sheets,
-      image_mode: currentMode.np,
-      convert_videos: document.getElementById('np-convert').checked,
-    });
-    if (res.error) return showToast(res.error, 'error');
+    const projectsRoot = document.getElementById('np-project-root').value.trim();
+    const videoQuality = document.getElementById('np-video-quality').value;
+    const selectedSteps = getSelectedFlowSteps('np');
+    if(!pname) return showToast('Укажите название проекта','error');
+    if(!projectsRoot) return showToast('Укажите папку для проекта','error');
+    if(!selectedSteps.length) return showToast('Выберите хотя бы один шаг','error');
+    if(selectedSteps.includes('stage_parse_links') && !sheets) return showToast('Укажите ссылку на Google таблицу','error');
+    const r = await post('/api/run/new_project',{project_name:pname,projects_root:projectsRoot,sheets_url:sheets,image_mode:imgMode.np,video_quality:videoQuality,selected_steps:selectedSteps});
+    if(r.error) return showToast(r.error,'error');
     startStreaming();
   }
 
   async function runEdits() {
     const pname = document.getElementById('ed-project').value.trim();
     const sheets = document.getElementById('ed-sheets').value.trim();
-    if (!pname) return showToast('Выберите проект', 'error');
-    if (!sheets) return showToast('Укажите ссылку на Google таблицу', 'error');
-
-    const res = await post('/api/run/edits', {
-      project_name: pname,
-      sheets_url: sheets,
-      image_mode: currentMode.ed,
-      convert_videos: document.getElementById('ed-convert').checked,
-    });
-    if (res.error) return showToast(res.error, 'error');
+    const videoQuality = document.getElementById('ed-video-quality').value;
+    const selectedSteps = getSelectedFlowSteps('ed');
+    if(!pname) return showToast('Выберите проект','error');
+    if(!selectedSteps.length) return showToast('Выберите хотя бы один шаг','error');
+    if(selectedSteps.includes('stage_parse_links') && !sheets) return showToast('Укажите ссылку на Google таблицу','error');
+    const r = await post('/api/run/edits',{project_name:pname,sheets_url:sheets,image_mode:imgMode.ed,video_quality:videoQuality,selected_steps:selectedSteps});
+    if(r.error) return showToast(r.error,'error');
     startStreaming();
   }
 
   async function runDirectVideo() {
     const pname = document.getElementById('dv-project').value.trim();
     const raw = document.getElementById('dv-urls').value.trim();
-    if (!pname) return showToast('Выберите проект', 'error');
-    if (!raw) return showToast('Укажите ссылки', 'error');
+    const videoQuality = document.getElementById('dv-video-quality').value;
+    if(!pname) return showToast('Выберите проект','error');
+    const urls = raw.split('\n').map(s=>s.trim()).filter(s=>s.startsWith('http'));
+    if(!urls.length) return showToast('Укажите ссылки','error');
+    const r = await post('/api/run/direct_video',{project_name:pname,urls,video_quality:videoQuality});
+    if(r.error) return showToast(r.error,'error');
+    startStreaming();
+  }
 
-    const urls = raw.split('\n').map(s => s.trim()).filter(s => s.startsWith('http'));
-    if (!urls.length) return showToast('Не найдено корректных ссылок', 'error');
+  async function runStage(runMode, needsProject) {
+    const pname = selProject || '';
+    if(needsProject && !pname) return showToast('Выберите проект в боковой панели','error');
+    const imageMode = document.getElementById('sc-image-mode')?.value || 'crop';
+    const r = await post('/api/run/stage',{run_mode:runMode,project_name:pname,image_mode:imageMode});
+    if(r.error) return showToast(r.error,'error');
+    startStreaming();
+  }
 
-    const res = await post('/api/run/direct_video', { project_name: pname, urls });
-    if (res.error) return showToast(res.error, 'error');
+  function runStageWithSheets(runMode) {
+    pendingStageMode = runMode;
+    document.getElementById('modal-sheets').value = '';
+    const m = document.getElementById('sheetsModal');
+    m.style.display = 'flex';
+    setTimeout(()=>document.getElementById('modal-sheets').focus(), 50);
+  }
+
+  async function confirmModalStage() {
+    const sheets = document.getElementById('modal-sheets').value.trim();
+    if(!sheets) return showToast('Введите ссылку','error');
+    closeModal();
+    const pname = selProject || '';
+    const imageMode = document.getElementById('sc-image-mode')?.value || 'crop';
+    const r = await post('/api/run/stage',{run_mode:pendingStageMode,project_name:pname,sheets_url:sheets,image_mode:imageMode});
+    if(r.error) return showToast(r.error,'error');
+    startStreaming();
+  }
+
+  function closeModal() {
+    document.getElementById('sheetsModal').style.display = 'none';
+    pendingStageMode = null;
+  }
+
+  async function runScript(scriptId, needsProject) {
+    const pname = selProject || '';
+    if(needsProject && !pname) return showToast('Выберите проект в боковой панели','error');
+    const imageMode = document.getElementById('sc-image-mode')?.value || 'crop';
+    const r = await post('/api/run/script',{script_id:scriptId,project_name:pname,image_mode:imageMode});
+    if(r.error) return showToast(r.error,'error');
     startStreaming();
   }
 
   async function installAllDeps() {
-    const res = await post('/api/run/install_deps', {});
-    if (res.error) return showToast(res.error, 'error');
+    const r = await post('/api/run/install_all',{});
+    if(r.error) return showToast(r.error,'error');
     startStreaming();
   }
 
   async function runInstall(what) {
-    let endpoint;
-    if (what === 'pip') endpoint = '/api/run/install_deps';
-    else if (what === 'playwright') endpoint = '/api/run/install_playwright';
-    else if (what === 'ffmpeg') endpoint = '/api/run/install_ffmpeg';
-    const res = await post(endpoint, {});
-    if (res.error) return showToast(res.error, 'error');
+    const ep =
+      what==='pip' ? '/api/run/install_deps' :
+      what==='playwright' ? '/api/run/install_playwright' :
+      what==='realesrgan' ? '/api/run/install_realesrgan' :
+      '/api/run/install_ffmpeg';
+    const r = await post(ep,{});
+    if(r.error) return showToast(r.error,'error');
     startStreaming();
   }
 
   async function refreshDeps() {
     const deps = await (await fetch('/api/deps')).json();
-    // Update dep grid
     const grid = document.getElementById('depGrid');
-    grid.innerHTML = Object.entries(deps).map(([name, info]) => `
-      <div class="dep-card ${info.ok ? 'ok' : 'fail'}" id="depcard-${name.replace('.', '-')}">
-        <div class="icon">${info.ok ? '✅' : '❌'}</div>
-        <div class="info">
-          <div class="name">${name}</div>
-          <div class="status-text">${info.type} · ${info.ok ? 'установлен' : 'не найден'}</div>
-        </div>
-        <div class="badge">${info.ok ? 'OK' : 'miss'}</div>
-      </div>
-    `).join('');
-    // Update sidebar deps
-    const sidebarDeps = document.getElementById('sidebarDeps');
-    sidebarDeps.innerHTML = Object.entries(deps).map(([name, info]) => `
-      <div class="dep-item">
-        <div class="dep-icon ${info.ok ? 'ok' : 'fail'}">${info.ok ? '✓' : '✗'}</div>
-        <span class="dep-name ${info.ok ? '' : 'fail'}">${name}</span>
-        <span class="dep-type">${info.type}</span>
-      </div>
-    `).join('');
-    showToast('Обновлено', 'success');
+    grid.innerHTML = Object.entries(deps).map(([n,i])=>`
+      <div class="dc ${i.ok?'ok':'fail'}">
+        <div class="ico">${i.ok?'✅':'❌'}</div>
+        <div class="inf"><div class="nm">${n}</div><div class="st">${i.type} · ${i.ok?'установлен':'не найден'}</div></div>
+        <div class="badge">${i.ok?'OK':'miss'}</div>
+      </div>`).join('');
+    const sb = document.getElementById('sidebarDeps');
+    sb.innerHTML = Object.entries(deps).map(([n,i])=>`
+      <div class="di">
+        <div class="dic ${i.ok?'ok':'fail'}">${i.ok?'✓':'✗'}</div>
+        <span class="dn ${i.ok?'':'fail'}">${n}</span>
+        <span class="dt">${i.type}</span>
+      </div>`).join('');
+    showToast('Обновлено','success');
   }
 
   async function saveSettings() {
-    const base = document.getElementById('settings-base-dir').value.trim();
-    const res = await post('/api/settings', { base_dir: base });
-    if (res.error) return showToast(res.error, 'error');
-    document.getElementById('settings-data-dir').value = base + '/data';
-    // Refresh projects
+    const base = document.getElementById('settings-base').value.trim();
+    const projectsRoot = document.getElementById('settings-projects-root').value.trim();
+    const cookiesFile = document.getElementById('settings-cookies-file').value.trim();
+    const r = await post('/api/settings',{base_dir:base,projects_root:projectsRoot,cookies_file:cookiesFile});
+    if(r.error) return showToast(r.error,'error');
+    document.getElementById('np-project-root').value = projectsRoot;
     const projects = await (await fetch('/api/projects')).json();
     updateProjectLists(projects);
-    showToast('Сохранено', 'success');
+    showToast('Сохранено','success');
   }
 
   function updateProjectLists(projects) {
     const list = document.getElementById('projectList');
     list.innerHTML = projects.length
-      ? projects.map(p => `<div class="project-item" data-name="${p}" onclick="selectProject('${p}')"><div class="dot"></div>${p}</div>`).join('')
-      : '<div class="empty">Нет проектов</div>';
-    ['ed-project', 'dv-project'].forEach(id => {
-      const sel = document.getElementById(id);
-      if (!sel) return;
-      const cur = sel.value;
-      sel.innerHTML = '<option value="">— выберите проект —</option>' +
-        projects.map(p => `<option value="${p}"${p === cur ? ' selected' : ''}>${p}</option>`).join('');
+      ? projects.map(p => {
+          const paused = p.status === 'paused';
+          const badge = paused ? `<span class="paused-badge">пауза</span>` : '';
+          const resumeBtn = paused
+            ? `<button class="resume-btn" onclick="event.stopPropagation();resumeProject('${p.name}')">▶ Продолжить</button>`
+            : '';
+          return `<div class="pi" data-name="${p.name}" onclick="selectProject('${p.name}')">
+            <div class="dot"></div>
+            <div style="flex:1;min-width:0">
+              <div>${p.name}${badge}</div>
+              ${resumeBtn}
+            </div>
+          </div>`;
+        }).join('')
+      : '<div style="color:var(--muted);font-size:12px">Нет проектов</div>';
+    ['ed-project','dv-project','sc-project','ph-project'].forEach(id=>{
+      const s=document.getElementById(id); if(!s) return;
+      const cur=s.value;
+      s.innerHTML='<option value="">— выберите проект —</option>'+projects.map(p=>`<option value="${p.name}"${p.name===cur?' selected':''}>${p.name}</option>`).join('');
     });
   }
 
-  // ── SSE streaming ──────────────────────────────────────────────────
-  function startStreaming() {
-    if (es) { es.close(); es = null; }
-    clearLog();
+  async function resumeProject(projectName) {
+    if(isRunning) return showToast('Дождитесь завершения текущей задачи','error');
+    const r = await post('/api/run/resume', { project_name: projectName });
+    if(r.error) return showToast(r.error, 'error');
+    selProject = projectName;
+    startStreaming();
+    showToast('Продолжаю с места паузы…', 'success');
+  }
+
+  function createProjectQuick() {
+    const modal = document.getElementById('createProjectModal');
+    const nameInput = document.getElementById('modal-new-project-name');
+    const rootInput = document.getElementById('modal-new-project-root');
+    rootInput.value = document.getElementById('settings-projects-root')?.value.trim()
+                   || document.getElementById('np-project-root')?.value.trim() || '';
+    nameInput.value = '';
+    modal.style.display = 'flex';
+    setTimeout(() => nameInput.focus(), 50);
+  }
+
+  function closeCreateProjectModal() {
+    document.getElementById('createProjectModal').style.display = 'none';
+  }
+
+  async function chooseCreateProjectFolder() {
+    const input = document.getElementById('modal-new-project-root');
+    const pick = await post('/api/choose_folder', { current_path: input.value || '', prompt: 'Выберите папку для проектов' });
+    if(pick.error) return showToast(pick.error, 'error');
+    input.value = pick.path;
+  }
+
+  async function confirmCreateProject() {
+    const projectName = document.getElementById('modal-new-project-name').value.trim();
+    const projectsRoot = document.getElementById('modal-new-project-root').value.trim();
+    if(!projectName) return showToast('Введите название проекта', 'error');
+    if(!projectsRoot) return showToast('Укажите папку для проектов', 'error');
+    const btn = document.getElementById('modal-create-btn');
+    btn.disabled = true;
+    const r = await post('/api/projects/create', { project_name: projectName, projects_root: projectsRoot });
+    btn.disabled = false;
+    if(r.error) return showToast(r.error, 'error');
+    closeCreateProjectModal();
+    updateProjectLists(r.projects || []);
+    document.getElementById('np-project').value = projectName;
+    document.getElementById('np-project-root').value = projectsRoot;
+    selectProject(projectName);
+    switchTab('new_project');
+    showToast('Папка проекта создана', 'success');
+  }
+
+  async function importProjectFolder() {
+    const pick = await post('/api/choose_folder', { current_path: document.getElementById('settings-projects-root')?.value || '', prompt: 'Выберите папку существующего проекта' });
+    if(pick.error) return showToast(pick.error,'error');
+    const r = await post('/api/projects/import', { project_path: pick.path });
+    if(r.error) return showToast(r.error,'error');
+    updateProjectLists(r.projects || []);
+    if(r.project?.projects_root) {
+      document.getElementById('settings-projects-root').value = r.project.projects_root;
+      document.getElementById('np-project-root').value = r.project.projects_root;
+    }
+    selectProject(r.project?.project_name || '');
+    showToast('Проект открыт','success');
+  }
+
+  async function openSelectedProjectFolder() {
+    if(!selProject) return showToast('Сначала выберите проект','error');
+    const r = await post('/api/projects/open_folder', { project_name: selProject });
+    if(r.error) return showToast(r.error,'error');
+  }
+
+  async function loadProjectState(projectName) {
+    const box = document.getElementById('projectStateBox');
+    if(!projectName) {
+      box.textContent = 'Проект не выбран';
+      return;
+    }
+    const r = await fetch('/api/projects/state?project_name=' + encodeURIComponent(projectName)).then(x => x.json());
+    if(r.error) {
+      box.textContent = r.error;
+      return;
+    }
+    const steps = Object.values(r.steps || {});
+    const done = steps.filter(s => s.status === 'done').length;
+    const failed = steps.filter(s => s.status === 'failed').length;
+    const running = steps.filter(s => s.status === 'running').length;
+    const paused = r.status === 'paused';
+    const pending = (r.pending_steps || []).length;
+    const statusLabel = paused
+      ? `<span class="paused-badge">⏸ пауза · осталось ${pending} шагов</span>`
+      : (r.status || 'new');
+    const resumeHtml = paused
+      ? `<button class="resume-btn" onclick="resumeProject('${projectName}')">▶ Продолжить с места паузы</button>`
+      : '';
+    box.innerHTML = `
+      <div><strong>${r.project_name || projectName}</strong> ${statusLabel}</div>
+      <div style="opacity:.8">готово ${done} · ошибок ${failed}${running?' · выполняется '+running:''}</div>
+      <div style="opacity:.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:10px">${r.project_path || ''}</div>
+      ${resumeHtml}
+    `;
+  }
+
+  async function cancelJob() {
+    const r = await post('/api/cancel',{});
+    if(r.error) showToast(r.error,'error');
+  }
+
+  function startStreaming({resetLog=true} = {}) {
+    if(es){es.close();es=null;}
+    if(resetLog) {
+      clearLog();
+      lastEventSeq = 0;
+    }
     setRunning(true);
 
-    const output = document.getElementById('logOutput');
-    if (logCollapsed) toggleLog();
-
-    es = new EventSource('/api/stream');
-    es.onmessage = e => {
+    es = new EventSource('/api/stream?since=' + encodeURIComponent(lastEventSeq));
+    es.onmessage = async e => {
       const msg = JSON.parse(e.data);
-      if (msg.type === 'ping') return;
-      if (msg.type === 'start') appendLog('▶ ' + msg.cmd, 'cmd');
-      else if (msg.type === 'log') appendLog(msg.text, classifyLine(msg.text));
-      else if (msg.type === 'error') appendLog('ERROR: ' + msg.text, 'error');
-      else if (msg.type === 'done') {
-        const ok = msg.code === 0;
-        appendLog(ok ? '✓ Завершено успешно' : `✗ Завершено с ошибкой (код ${msg.code})`, ok ? 'done-ok' : 'done-fail');
+      if(msg.type==='ping') return;
+      if(msg.seq) lastEventSeq = Math.max(lastEventSeq, Number(msg.seq) || 0);
+      if(msg.type==='status') {
+        updateJobStatus(msg.status || {});
+        return;
+      }
+      if(msg.type==='start') appendLog('▶ '+msg.cmd,'cmd');
+      else if(msg.type==='log') appendLog(msg.text, classify(msg.text));
+      else if(msg.type==='error') appendLog('ERROR: '+msg.text,'error');
+      else if(msg.type==='done'){
+        const ok = msg.code===0;
+        const cancelled = msg.cancelled;
         setRunning(false);
-        if (ok) { refreshDeps(); refreshProjects(); }
-        es.close(); es = null;
+        es.close(); es=null;
+        if(ok){
+          refreshDeps();
+          await refreshProjects();
+          // Проверяем — не на паузе ли выбранный проект
+          if(selProject){
+            const st = await fetch('/api/projects/state?project_name='+encodeURIComponent(selProject)).then(x=>x.json()).catch(()=>({}));
+            if(st.status==='paused'){
+              const rem = (st.pending_steps||[]).length;
+              appendLog(`⏸️  Пауза. Осталось шагов: ${rem}. Нажмите «Продолжить» в списке проектов.`,'info');
+              return;
+            }
+          }
+          appendLog('✓ Завершено успешно','done-ok');
+        } else {
+          appendLog(cancelled?'⛔ Отменено':`✗ Завершено с ошибкой (код ${msg.code})`,
+                    cancelled?'cancelled':'done-fail');
+        }
       }
     };
-    es.onerror = () => {
-      appendLog('Соединение потеряно', 'error');
-      setRunning(false);
-      es.close(); es = null;
-    };
+    es.onerror = ()=>{ appendLog('Соединение потеряно','error'); setRunning(false); es.close(); es=null; };
   }
 
   async function refreshProjects() {
-    const projects = await (await fetch('/api/projects')).json();
-    updateProjectLists(projects);
+    const p = await (await fetch('/api/projects')).json();
+    updateProjectLists(p);
+    if(selProject) loadProjectState(selProject);
   }
 
-  function classifyLine(text) {
-    if (!text) return '';
-    if (/✓|Done!|завершен|успешно/i.test(text)) return 'success';
-    if (/❌|error|ошибк/i.test(text)) return 'error';
-    if (/===|Stage\d/i.test(text)) return 'info';
+  function classify(t) {
+    if(!t) return '';
+    if(/✓|Done!|завершен|успешно/i.test(t)) return 'success';
+    if(/❌|error|ошибк/i.test(t)) return 'error';
+    if(/===|Stage\d/i.test(t)) return 'info';
     return '';
   }
 
   function appendLog(text, cls) {
-    const output = document.getElementById('logOutput');
-    const line = document.createElement('div');
-    line.className = 'log-line' + (cls ? ' ' + cls : '');
-    line.textContent = text;
-    output.appendChild(line);
-    output.scrollTop = output.scrollHeight;
+    const out = document.getElementById('logOut');
+    const wasAtBottom = isLogAtBottom();
+    const d = document.createElement('div');
+    d.className = 'll'+(cls?' '+cls:'');
+    d.textContent = text;
+    out.appendChild(d);
+    if(wasAtBottom) out.scrollTop = out.scrollHeight;
   }
 
-  function clearLog() {
-    document.getElementById('logOutput').innerHTML = '';
+  function clearLog(showPlaceholder=false) {
+    document.getElementById('logOut').innerHTML = showPlaceholder ? '<div class="ll info">— ожидание задачи —</div>' : '';
   }
 
-  function toggleLog() {
-    logCollapsed = !logCollapsed;
-    const panel = document.getElementById('logPanel');
-    panel.style.height = logCollapsed ? '32px' : '220px';
-    panel.querySelector('.log-output').style.display = logCollapsed ? 'none' : '';
-  }
-
-  function setRunning(running) {
-    isRunning = running;
-    const dot = document.getElementById('statusDot');
-    const text = document.getElementById('statusText');
-    const indicator = document.getElementById('logIndicator');
-    dot.classList.toggle('running', running);
-    text.textContent = running ? 'выполняется...' : 'готов';
-    indicator.style.color = running ? '#eab308' : '#22c55e';
-    document.querySelectorAll('.run-btn').forEach(b => b.disabled = running);
-    const installBtn = document.getElementById('sidebarInstallBtn');
-    if (installBtn) installBtn.disabled = running;
-  }
-
-  // ── Resize handle ──────────────────────────────────────────────────
-  (() => {
-    const handle = document.getElementById('resizeHandle');
-    const panel = document.getElementById('logPanel');
-    let dragging = false, startY = 0, startH = 0;
-    handle.addEventListener('mousedown', e => {
-      dragging = true; startY = e.clientY; startH = panel.offsetHeight;
-      e.preventDefault();
+  function renderLogHistory(events) {
+    const out = document.getElementById('logOut');
+    out.innerHTML = '';
+    if(!events || !events.length) {
+      clearLog(true);
+      return;
+    }
+    events.forEach(msg => {
+      if(msg.seq) lastEventSeq = Math.max(lastEventSeq, Number(msg.seq) || 0);
+      if(msg.type==='start') appendLog('▶ '+msg.cmd,'cmd');
+      else if(msg.type==='log') appendLog(msg.text, classify(msg.text));
+      else if(msg.type==='error') appendLog('ERROR: '+msg.text,'error');
+      else if(msg.type==='done') {
+        if(msg.code===0) appendLog('✓ Завершено успешно','done-ok');
+        else appendLog(msg.cancelled?'⛔ Отменено':`✗ Завершено с ошибкой (код ${msg.code})`, msg.cancelled?'cancelled':'done-fail');
+      }
     });
-    document.addEventListener('mousemove', e => {
-      if (!dragging) return;
-      const delta = startY - e.clientY;
-      const newH = Math.max(80, Math.min(600, startH + delta));
-      panel.style.height = newH + 'px';
-      logCollapsed = newH < 60;
-      panel.querySelector('.log-output').style.display = logCollapsed ? 'none' : '';
-    });
-    document.addEventListener('mouseup', () => { dragging = false; });
-  })();
+    scrollLogToBottom();
+  }
 
-  // ── Helpers ────────────────────────────────────────────────────────
-  async function post(url, body) {
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(body),
-      });
-      return await res.json();
-    } catch (e) {
-      return { error: e.message };
+  function isLogAtBottom() {
+    const out = document.getElementById('logOut');
+    if(!out) return true;
+    return out.scrollHeight - out.scrollTop - out.clientHeight < 28;
+  }
+
+  function scrollLogToBottom() {
+    const out = document.getElementById('logOut');
+    if(out) out.scrollTop = out.scrollHeight;
+  }
+
+  function preserveLogPosition() {
+    if(isLogAtBottom()) scrollLogToBottom();
+  }
+
+  function formatDuration(seconds) {
+    if(seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) return 'оценивается';
+    const total = Math.max(0, Math.round(Number(seconds)));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if(h) return `${h}ч ${String(m).padStart(2,'0')}м`;
+    if(m) return `${m}м ${String(s).padStart(2,'0')}с`;
+    return `${s}с`;
+  }
+
+  function updateJobStatus(status) {
+    const running = !!status.running;
+    const pct = Math.max(0, Math.min(100, Number(status.progress_percent || 0)));
+    setRunning(running);
+    document.getElementById('jobTitle').textContent = status.job_title || (running ? 'Задача выполняется' : 'Готово');
+    document.getElementById('jobMeta').textContent = running ? `${pct.toFixed(1)}%` : 'готово';
+    document.getElementById('jobProgressFill').style.width = `${pct}%`;
+    const stepIndex = Number(status.step_index || 0);
+    const totalSteps = Number(status.total_steps || 0);
+    const stepPrefix = stepIndex && totalSteps ? `Шаг ${stepIndex}/${totalSteps}: ` : '';
+    document.getElementById('jobStep').textContent = stepPrefix + (status.step_title || status.phase || 'Подготовка...');
+    const eta = status.step_eta_seconds ?? status.eta_seconds;
+    document.getElementById('jobEta').textContent = running ? `Окончание шага: ${formatDuration(eta)}` : '';
+  }
+
+  function setRunning(r) {
+    isRunning = r;
+    document.getElementById('statusDot').classList.toggle('running', r);
+    document.getElementById('statusText').textContent = r ? 'выполняется...' : 'готов';
+    document.getElementById('logDot').style.color = r ? 'var(--yellow)' : 'var(--green)';
+    document.getElementById('jobBar').classList.toggle('visible', r);
+    document.getElementById('cancelBtn').classList.toggle('visible', r);
+    document.getElementById('pauseBtn').classList.toggle('visible', r);
+    if(!r) {
+      const btn = document.getElementById('pauseBtn');
+      btn.disabled = false;
+      btn.textContent = '⏸ Пауза';
+    }
+    document.querySelectorAll('.run-btn,.stage-run,.inst-btn').forEach(b => b.disabled = r);
+    const sb = document.getElementById('sidebarInstBtn');
+    if(sb) sb.disabled = r;
+  }
+
+  async function pauseJob() {
+    const btn = document.getElementById('pauseBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ ожидаю...';
+    const r = await post('/api/pause', {});
+    if(r.error) {
+      showToast(r.error, 'error');
+      btn.disabled = false;
+      btn.textContent = '⏸ Пауза';
     }
   }
 
+  document.getElementById('modal-sheets').addEventListener('keydown', e => {
+    if(e.key==='Enter') confirmModalStage();
+    if(e.key==='Escape') closeModal();
+  });
+  document.getElementById('sheetsModal').addEventListener('click', e => {
+    if(e.target===document.getElementById('sheetsModal')) closeModal();
+  });
+
+  ['modal-new-project-name','modal-new-project-root'].forEach(id => {
+    document.getElementById(id).addEventListener('keydown', e => {
+      if(e.key==='Enter') confirmCreateProject();
+      if(e.key==='Escape') closeCreateProjectModal();
+    });
+  });
+  document.getElementById('createProjectModal').addEventListener('click', e => {
+    if(e.target===document.getElementById('createProjectModal')) closeCreateProjectModal();
+  });
+
+  function copyEmail(el) {
+    const email = el.querySelector('span:last-child').textContent.trim();
+    navigator.clipboard.writeText(email).then(() => {
+      el.classList.add('copied');
+      el.querySelector('.sa-email-icon').textContent = '✓';
+      setTimeout(() => { el.classList.remove('copied'); el.querySelector('.sa-email-icon').textContent = '📋'; }, 2000);
+    });
+  }
+
+  async function post(url, body) {
+    try {
+      const r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+      return await r.json();
+    } catch(e) { return {error:e.message}; }
+  }
+
   function showToast(msg, type) {
-    const existing = document.querySelector('.toast');
-    if (existing) existing.remove();
+    document.querySelector('.toast')?.remove();
     const t = document.createElement('div');
     t.className = `toast ${type}`;
     t.textContent = msg;
     document.body.appendChild(t);
-    setTimeout(() => t.remove(), 3000);
+    setTimeout(()=>t.remove(), 3000);
   }
 
-  // ── Poll status if page reloaded mid-run ──────────────────────────
-  (async () => {
-    const status = await (await fetch('/api/status')).json();
-    if (status.running) startStreaming();
+  (async()=>{
+    syncFlowCards('np');
+    syncFlowCards('ed');
+    document.getElementById('np-project-root').value = document.getElementById('settings-projects-root').value;
+    const s = await (await fetch('/api/status')).json();
+    lastEventSeq = Number(s.last_event_seq || 0);
+    renderLogHistory(s.log_history || []);
+    updateJobStatus(s);
+    if(s.running) startStreaming({resetLog:false});
   })();
+
+  // ── Photo placeholders editor ─────────────────────────────────────────────
+  const _PW = 640, _PH = 360;   // preview display size px
+  const _AW = 1920, _AH = 1080; // actual frame size px
+  const _DS = _PW / _AW;        // display/actual scale = 1/3
+
+  let _phAll = [];
+  let _phFiltered = [];
+  let _phSelected = new Set();
+  let _phCur = null;            // {project, subdir, name}
+  let _phS   = {zoom:1.0, x:0, y:0};
+
+  function phUpdateSelectedCount() {
+    const el = document.getElementById('phSelectedCount');
+    if (el) el.textContent = `Выбрано: ${_phSelected.size}`;
+  }
+
+  function phLoadList() {
+    const project = (document.getElementById('ph-project').value || '').trim();
+    const subdir  = (document.getElementById('ph-subdir').value  || '').trim();
+    if (!project) {
+      _phAll = [];
+      _phFiltered = [];
+      _phSelected = new Set();
+      phUpdateSelectedCount();
+      document.getElementById('phGrid').innerHTML = '<div class="ph-empty">Выберите проект</div>';
+      return;
+    }
+    document.getElementById('phGrid').innerHTML = '<div class="ph-empty">Загрузка...</div>';
+    fetch(`/api/placeholders?project=${encodeURIComponent(project)}&subdir=${encodeURIComponent(subdir)}`)
+      .then(r => r.json())
+      .then(d => {
+        _phAll = d.files || [];
+        const available = new Set(_phAll.map(f => f.name));
+        _phSelected = new Set([..._phSelected].filter(name => available.has(name)));
+        phFilter();
+      })
+      .catch(() => { document.getElementById('phGrid').innerHTML = '<div class="ph-empty">Ошибка загрузки</div>'; });
+  }
+
+  function phFilter() {
+    const q       = (document.getElementById('phSearch').value || '').toLowerCase();
+    const project = (document.getElementById('ph-project').value || '').trim();
+    const subdir  = (document.getElementById('ph-subdir').value  || '').trim();
+    const list    = q ? _phAll.filter(f => f.name.toLowerCase().includes(q)) : _phAll;
+    _phFiltered = list;
+    const grid    = document.getElementById('phGrid');
+    phUpdateSelectedCount();
+    if (!list.length) { grid.innerHTML = '<div class="ph-empty">Нет файлов</div>'; return; }
+    grid.innerHTML = list.map(f => {
+      const src = f.has_src
+        ? `/api/placeholder_src?project=${encodeURIComponent(project)}&subdir=${encodeURIComponent(subdir)}&name=${encodeURIComponent(f.name)}`
+        : null;
+      const esc = f.name.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+      const selected = _phSelected.has(f.name);
+      return `<div class="ph-card ${selected ? 'sel' : ''}" data-ph-name="${esc}">
+        <div class="ph-card-bar">
+          <input type="checkbox" class="ph-card-check" data-ph-check="${esc}" ${selected ? 'checked' : ''}>
+          <span class="ph-card-badge">${f.has_src ? 'src' : 'нет src'}</span>
+        </div>
+        ${src
+          ? `<img class="ph-thumb" src="${src}" loading="lazy" alt="${esc}">`
+          : '<div class="ph-thumb-ph">нет источника</div>'}
+        <div class="ph-name">${esc}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function phSelectVisible(selected) {
+    for (const item of _phFiltered) {
+      if (selected) _phSelected.add(item.name);
+      else _phSelected.delete(item.name);
+    }
+    phFilter();
+  }
+
+  function phToggleSelected(name, selected) {
+    if (selected) _phSelected.add(name);
+    else _phSelected.delete(name);
+    phUpdateSelectedCount();
+    const card = document.querySelector(`[data-ph-name="${CSS.escape(name)}"]`);
+    if (card) card.classList.toggle('sel', selected);
+  }
+
+  function phOpenEditor(name) {
+    const project = (document.getElementById('ph-project').value || '').trim();
+    const subdir  = (document.getElementById('ph-subdir').value  || '').trim();
+    _phCur = {project, subdir, name};
+    _phS   = {zoom:1.0, x:0, y:0};
+    document.getElementById('phEditorName').textContent = name;
+    document.getElementById('phPreviewImg').src =
+      `/api/placeholder_src?project=${encodeURIComponent(project)}&subdir=${encodeURIComponent(subdir)}&name=${encodeURIComponent(name)}`;
+    _phApply();
+    document.getElementById('phEditorOverlay').classList.add('open');
+  }
+
+  function phCloseEditor() {
+    document.getElementById('phEditorOverlay').classList.remove('open');
+    _phCur = null;
+  }
+
+  function _phBounds(zoom = _phS.zoom) {
+    const scaledW = _AW * zoom;
+    const scaledH = _AH * zoom;
+    return {
+      maxX: Math.round((scaledW + _AW) / 2) - 1,
+      maxY: Math.round((scaledH + _AH) / 2) - 1
+    };
+  }
+
+  function _phClampState(next) {
+    const bounds = _phBounds(next.zoom);
+    return {
+      zoom: next.zoom,
+      x: Math.max(-bounds.maxX, Math.min(next.x, bounds.maxX)),
+      y: Math.max(-bounds.maxY, Math.min(next.y, bounds.maxY))
+    };
+  }
+
+  function _phApply() {
+    const {zoom, x, y} = _phS;
+    const {maxX, maxY} = _phBounds(zoom);
+    const dispW = _PW * zoom;
+    const dispH = _PH * zoom;
+    const img  = document.getElementById('phPreviewImg');
+    img.style.width  = dispW + 'px';
+    img.style.height = dispH + 'px';
+    img.style.left   = ((_PW - dispW) / 2 + (x * _DS)) + 'px';
+    img.style.top    = ((_PH - dispH) / 2 + (y * _DS)) + 'px';
+    document.getElementById('phZoomRange').value = Math.round(zoom * 100);
+    document.getElementById('phXRange').min      = -maxX;
+    document.getElementById('phXRange').max      = maxX;
+    document.getElementById('phXRange').value    = Math.round(x);
+    document.getElementById('phYRange').min      = -maxY;
+    document.getElementById('phYRange').max      = maxY;
+    document.getElementById('phYRange').value    = Math.round(y);
+    document.getElementById('phZoomVal').textContent = Math.round(zoom * 100) + '%';
+    document.getElementById('phXVal').textContent    = Math.round(x) + ' px';
+    document.getElementById('phYVal').textContent    = Math.round(y) + ' px';
+  }
+
+  function phUpdateFromSlider() {
+    const zoom = parseInt(document.getElementById('phZoomRange').value) / 100;
+    _phS = _phClampState({
+      zoom,
+      x: parseInt(document.getElementById('phXRange').value) || 0,
+      y: parseInt(document.getElementById('phYRange').value) || 0
+    });
+    _phApply();
+  }
+
+  function phNudge(dx, dy) {
+    _phS = _phClampState({
+      zoom: _phS.zoom,
+      x: _phS.x + dx,
+      y: _phS.y + dy
+    });
+    _phApply();
+  }
+
+  function phResetPos() { _phS.x = 0; _phS.y = 0; _phApply(); }
+  function phResetAll() { _phS = {zoom:1.0, x:0, y:0}; _phApply(); }
+
+  async function phEncode() {
+    if (!_phCur) return;
+    if (isRunning) { showToast('Уже выполняется задача', 'error'); return; }
+    const {project, subdir, name} = _phCur;
+    const {zoom, x, y} = _phS;
+    const btn = document.getElementById('phEncodeBtn');
+    btn.disabled = true;
+    try {
+      const r = await post('/api/placeholder_encode',
+        {project, subdir, name, zoom, x: Math.round(x), y: Math.round(y)});
+      if (r.error) { showToast(r.error, 'error'); return; }
+      phCloseEditor();
+      startStreaming();
+      showToast(`Рендер ${name} запущен`, 'success');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function phUpscaleSelected() {
+    const project = (document.getElementById('ph-project').value || '').trim();
+    const subdir  = (document.getElementById('ph-subdir').value  || '').trim();
+    const scale   = parseInt(document.getElementById('phUpscaleScale').value || '2', 10);
+    const names   = [..._phSelected];
+    if (!project) return showToast('Выберите проект', 'error');
+    if (!names.length) return showToast('Выберите хотя бы одно фото', 'error');
+    if (isRunning) return showToast('Уже выполняется задача', 'error');
+    const r = await post('/api/placeholder_upscale', {project, subdir, names, scale});
+    if (r.error) return showToast(r.error, 'error');
+    startStreaming();
+    showToast(`Апскейл запущен: ${names.length} шт.`, 'success');
+  }
+
+  // Drag-to-pan in preview
+  (() => {
+    let _drag = null;
+    document.addEventListener('mousedown', e => {
+      if (!document.getElementById('phEditorOverlay').classList.contains('open')) return;
+      const w = document.getElementById('phPreviewWrap');
+      if (!w.contains(e.target)) return;
+      _drag = {mx: e.clientX, my: e.clientY, sx: _phS.x, sy: _phS.y};
+      w.classList.add('dragging');
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+      if (!_drag) return;
+      _phS = _phClampState({
+        zoom: _phS.zoom,
+        x: _drag.sx + (e.clientX - _drag.mx) / _DS,
+        y: _drag.sy + (e.clientY - _drag.my) / _DS
+      });
+      _phApply();
+    });
+    document.addEventListener('mouseup', () => {
+      if (_drag) { document.getElementById('phPreviewWrap').classList.remove('dragging'); _drag = null; }
+    });
+  })();
+
+  document.getElementById('phEditorOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('phEditorOverlay')) phCloseEditor();
+  });
+
+  document.getElementById('phGrid').addEventListener('click', e => {
+    const checkbox = e.target.closest('[data-ph-check]');
+    if (checkbox) {
+      phToggleSelected(checkbox.dataset.phCheck, checkbox.checked);
+      e.stopPropagation();
+      return;
+    }
+    const card = e.target.closest('[data-ph-name]');
+    if (card) phOpenEditor(card.dataset.phName);
+  });
+
+  // ── Газеты ──────────────────────────────────────────────────────────────────
+  const _GW = 640, _GH = 360;    // display size
+  const _GFW = 1920, _GFH = 1080; // actual frame size
+  let _gzS = {zoom: 1.0, x: 0, y: 0};
+  let _gzVersion = 2;
+  let _gzAnim = null;
+  let _gzLottieLoading = false;
+  let _gzPreviewRequest = 0;
+  let _gzBackgroundColor = '#000000';
+  let _gzEyedropperActive = false;
+  let _gzQueue = [];
+  let _gzActivePhotoId = null;
+  let _gzPhotoSeq = 0;
+  let _gzWatchTimer = null;
+  let _gzWatchFolder = '';
+  const _gzWatchedIds = new Set();
+  let _gzRenderCancelled = false;
+  let _gzCurrentRenderId = null;
+  let _gzRenderAbortController = null;
+  let _gzBatchRendering = false;
+
+  function _gzSetRenderControls(running) {
+    document.getElementById('gz-render-btn').disabled = running;
+    document.getElementById('gz-render-all-btn').disabled = running;
+    document.getElementById('gz-cancel-render-btn').style.display = running ? '' : 'none';
+  }
+
+  async function gzCancelRender() {
+    if (!_gzRenderAbortController && !_gzCurrentRenderId && !_gzBatchRendering) return;
+    _gzRenderCancelled = true;
+    if (_gzRenderAbortController) _gzRenderAbortController.abort();
+    const renderId = _gzCurrentRenderId;
+    if (renderId) {
+      try {
+        await fetch(`/api/gazety/render/${renderId}/cancel`, {method: 'POST'});
+      } catch(e) {}
+    }
+    gzSetProgress('Рендер отменен', 0);
+  }
+
+  function _gzActivePhoto() {
+    return _gzQueue.find(item => item.id === _gzActivePhotoId) || null;
+  }
+
+  function _gzSaveActiveTransform() {
+    const item = _gzActivePhoto();
+    if (item) item.transform = {..._gzS};
+  }
+
+  function _gzRenderQueue() {
+    const queue = document.getElementById('gz-queue');
+    queue.innerHTML = '';
+    if (!_gzQueue.length) {
+      const empty = document.createElement('div');
+      empty.className = 'gz-queue-empty';
+      empty.textContent = 'Добавьте одно или несколько фото для массового рендера';
+      queue.appendChild(empty);
+      return;
+    }
+    _gzQueue.forEach((item, index) => {
+      const card = document.createElement('div');
+      card.className = 'gz-queue-item' + (item.id === _gzActivePhotoId ? ' active' : '');
+      card.title = item.name;
+      card.onclick = () => gzSelectQueuePhoto(item.id);
+
+      const thumb = document.createElement('img');
+      thumb.className = 'gz-queue-thumb';
+      thumb.src = item.url;
+      thumb.alt = '';
+      card.appendChild(thumb);
+
+      if (item.status) {
+        const status = document.createElement('div');
+        status.className = 'gz-queue-status';
+        status.textContent = item.status === 'done' ? 'Готово' : item.status === 'error' ? 'Ошибка' : 'Рендер';
+        card.appendChild(status);
+      }
+
+      const name = document.createElement('div');
+      name.className = 'gz-queue-name';
+      name.textContent = `${index + 1}. ${item.name}`;
+      card.appendChild(name);
+
+      const version = document.createElement('div');
+      version.className = 'gz-queue-version';
+      version.textContent = `v${item.version}`;
+      card.appendChild(version);
+
+      const remove = document.createElement('button');
+      remove.className = 'gz-queue-remove';
+      remove.textContent = '×';
+      remove.title = 'Удалить из очереди';
+      remove.onclick = e => {
+        e.stopPropagation();
+        gzRemoveQueuePhoto(item.id);
+      };
+      card.appendChild(remove);
+      queue.appendChild(card);
+    });
+  }
+
+  function gzSelectQueuePhoto(id) {
+    _gzSaveActiveTransform();
+    const item = _gzQueue.find(photo => photo.id === id);
+    if (!item) return Promise.resolve(false);
+    _gzActivePhotoId = id;
+    _gzS = {...item.transform};
+    _gzBackgroundColor = item.backgroundColor || '#000000';
+    document.getElementById('gz-bg-color').value = _gzBackgroundColor;
+    _gzRenderQueue();
+    _gzApplyEditor();
+    if (_gzVersion !== item.version) gzSelectVersion(item.version, false);
+
+    const img = document.getElementById('gz-photo-img');
+    return new Promise(resolve => {
+      const loaded = () => {
+        gzSyncPreviewCrop();
+        resolve(true);
+      };
+      if (img.src === item.url && img.complete && img.naturalWidth) {
+        loaded();
+        return;
+      }
+      img.onload = loaded;
+      img.onerror = () => resolve(false);
+      img.src = item.url;
+    });
+  }
+
+  function gzRemoveQueuePhoto(id) {
+    const index = _gzQueue.findIndex(item => item.id === id);
+    if (index < 0) return;
+    const [removed] = _gzQueue.splice(index, 1);
+    URL.revokeObjectURL(removed.url);
+    if (_gzActivePhotoId === id) {
+      const next = _gzQueue[Math.min(index, _gzQueue.length - 1)];
+      _gzActivePhotoId = null;
+      if (next) gzSelectQueuePhoto(next.id);
+    }
+    _gzRenderQueue();
+  }
+
+  function _gzAddLocalFiles(files) {
+    const images = Array.from(files || []).filter(file => file.type.startsWith('image/'));
+    if (!images.length) return [];
+    const added = images.map(file => ({
+      id: `gz-photo-${++_gzPhotoSeq}`,
+      file,
+      url: URL.createObjectURL(file),
+      name: file.name,
+      transform: {zoom: 1.0, x: 0, y: 0},
+      version: _gzVersion,
+      backgroundColor: '#000000',
+      status: '',
+    }));
+    _gzQueue.push(...added);
+    _gzRenderQueue();
+    return added;
+  }
+
+  function gzDragEnter(e) {
+    e.preventDefault();
+    document.getElementById('gz-queue').classList.add('dragover');
+  }
+
+  function gzDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    document.getElementById('gz-queue').classList.add('dragover');
+  }
+
+  function gzDragLeave(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('dragover');
+  }
+
+  async function gzDrop(e) {
+    e.preventDefault();
+    e.currentTarget.classList.remove('dragover');
+    const added = _gzAddLocalFiles(e.dataTransfer.files);
+    if (!added.length) return showToast('Перетащите файлы изображений', 'error');
+    await gzSelectQueuePhoto(added[0].id);
+    showToast(`Добавлено фото: ${added.length}`, 'success');
+  }
+
+  function gzAssignVersions() {
+    if (!_gzQueue.length) return showToast('Очередь фотографий пуста', 'error');
+    _gzSaveActiveTransform();
+    _gzQueue.forEach((item, index) => {
+      item.version = 2 + (index % 4);
+      item.status = '';
+    });
+    const active = _gzActivePhoto();
+    _gzRenderQueue();
+    if (active) gzSelectVersion(active.version, false);
+    showToast('Шаблоны распределены: v2, v3, v4, v5 по кругу', 'success');
+  }
+
+  async function gzImportWatchedFiles(files) {
+    const added = [];
+    for (const file of files || []) {
+      if (_gzWatchedIds.has(file.id)) continue;
+      _gzWatchedIds.add(file.id);
+      const item = {
+        id: `gz-watch-${file.id}`,
+        watchId: file.id,
+        url: file.url,
+        name: file.name,
+        transform: {zoom: 1.0, x: 0, y: 0},
+        version: _gzVersion,
+        backgroundColor: '#000000',
+        status: '',
+      };
+      _gzQueue.push(item);
+      added.push(item);
+    }
+    if (added.length) {
+      _gzRenderQueue();
+      if (!_gzActivePhotoId) await gzSelectQueuePhoto(added[0].id);
+      showToast(`Из папки добавлено: ${added.length}`, 'success');
+    }
+    return added.length;
+  }
+
+  async function gzPollWatchFolder() {
+    if (!_gzWatchFolder) return;
+    try {
+      const response = await fetch('/api/gazety/watch/files');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Ошибка чтения папки');
+      await gzImportWatchedFiles(data.files);
+    } catch(e) {
+      document.getElementById('gz-watch-label').textContent = 'Ошибка отслеживания: ' + e.message;
+    }
+  }
+
+  async function gzChooseWatchFolder() {
+    const btn = document.getElementById('gz-watch-btn');
+    btn.disabled = true;
+    try {
+      const response = await fetch('/api/gazety/watch/select', {method: 'POST'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Не удалось выбрать папку');
+      if (data.cancelled) return;
+      _gzWatchFolder = data.folder;
+      document.getElementById('gz-watch-label').textContent = data.folder;
+      await gzImportWatchedFiles(data.files);
+      if (_gzWatchTimer) clearInterval(_gzWatchTimer);
+      _gzWatchTimer = setInterval(gzPollWatchFolder, 3000);
+    } catch(e) {
+      showToast('Ошибка папки: ' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function _gzClamp(s) {
+    return {
+      zoom: Math.max(0.05, Math.min(8.0, s.zoom)),
+      x: Number.isFinite(s.x) ? s.x : 0,
+      y: Number.isFinite(s.y) ? s.y : 0,
+    };
+  }
+
+  function _gzPhotoRect(img, frameW, frameH, zoom, x = 0, y = 0) {
+    const naturalW = img.naturalWidth || frameW;
+    const naturalH = img.naturalHeight || frameH;
+    const coverScale = Math.max(frameW / naturalW, frameH / naturalH);
+    const width = naturalW * coverScale * zoom;
+    const height = naturalH * coverScale * zoom;
+    return {
+      x: (frameW - width) / 2 + x,
+      y: (frameH - height) / 2 + y,
+      width,
+      height,
+    };
+  }
+
+  function _gzZoomAtPoint(nextZoom, pointX, pointY) {
+    const oldZoom = _gzS.zoom;
+    const zoom = Math.max(0.05, Math.min(8.0, nextZoom));
+    const ratio = zoom / oldZoom;
+    return _gzClamp({
+      zoom,
+      x: pointX - (pointX - _gzS.x) * ratio,
+      y: pointY - (pointY - _gzS.y) * ratio,
+    });
+  }
+
+  function _gzApplyEditor() {
+    const {zoom, x, y} = _gzS;
+    const sliderLimit = Math.max(10000, Math.ceil(Math.max(Math.abs(x), Math.abs(y)) + 1000));
+    document.getElementById('gz-zoom-range').value = Math.round(zoom * 100);
+    document.getElementById('gz-x-range').min = -sliderLimit; document.getElementById('gz-x-range').max = sliderLimit;
+    document.getElementById('gz-x-range').value = Math.round(x);
+    document.getElementById('gz-y-range').min = -sliderLimit; document.getElementById('gz-y-range').max = sliderLimit;
+    document.getElementById('gz-y-range').value = Math.round(y);
+    document.getElementById('gz-zoom-val').textContent = Math.round(zoom * 100) + '%';
+    document.getElementById('gz-x-val').textContent    = Math.round(x) + ' px';
+    document.getElementById('gz-y-val').textContent    = Math.round(y) + ' px';
+    _gzSaveActiveTransform();
+    gzSyncPreviewCrop();
+  }
+
+  function gzUpdateFromSlider() {
+    _gzS = _gzClamp({
+      zoom: parseInt(document.getElementById('gz-zoom-range').value) / 100,
+      x: parseInt(document.getElementById('gz-x-range').value) || 0,
+      y: parseInt(document.getElementById('gz-y-range').value) || 0,
+    });
+    _gzApplyEditor();
+  }
+
+  function gzNudge(dx, dy) {
+    _gzS = _gzClamp({zoom: _gzS.zoom, x: _gzS.x + dx, y: _gzS.y + dy});
+    _gzApplyEditor();
+  }
+
+  function gzReset() { _gzS = {zoom: 1.0, x: 0, y: 0}; _gzApplyEditor(); }
+
+  function gzSetBackgroundColor(color) {
+    if (!/^#[0-9a-f]{6}$/i.test(color)) return;
+    _gzBackgroundColor = color.toLowerCase();
+    const item = _gzActivePhoto();
+    if (item) item.backgroundColor = _gzBackgroundColor;
+    gzSyncPreviewCrop();
+  }
+
+  function gzToggleEyedropper(force) {
+    _gzEyedropperActive = typeof force === 'boolean' ? force : !_gzEyedropperActive;
+    document.getElementById('gz-eyedropper-btn').classList.toggle('active', _gzEyedropperActive);
+    document.getElementById('gz-preview-wrap').classList.toggle('eyedropper', _gzEyedropperActive);
+  }
+
+  function _gzRgbToHex(r, g, b) {
+    return '#' + [r, g, b].map(value => value.toString(16).padStart(2, '0')).join('');
+  }
+
+  function gzPickBackgroundAt(clientX, clientY) {
+    const img = document.getElementById('gz-photo-img');
+    const wrap = document.getElementById('gz-preview-wrap');
+    if (!img.complete || !img.naturalWidth || !wrap) return false;
+
+    const bounds = wrap.getBoundingClientRect();
+    const frameX = (clientX - bounds.left) * (_GFW / bounds.width);
+    const frameY = (clientY - bounds.top) * (_GFH / bounds.height);
+    const rect = _gzPhotoRect(img, _GFW, _GFH, _gzS.zoom, _gzS.x, _gzS.y);
+    const sourceX = Math.floor((frameX - rect.x) / rect.width * img.naturalWidth);
+    const sourceY = Math.floor((frameY - rect.y) / rect.height * img.naturalHeight);
+    if (sourceX < 0 || sourceY < 0 || sourceX >= img.naturalWidth || sourceY >= img.naturalHeight) {
+      showToast('Укажите на область фотографии', 'error');
+      return false;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1;
+    canvas.height = 1;
+    const ctx = canvas.getContext('2d', {willReadFrequently: true});
+    ctx.drawImage(img, sourceX, sourceY, 1, 1, 0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    const color = _gzRgbToHex(r, g, b);
+    document.getElementById('gz-bg-color').value = color;
+    gzSetBackgroundColor(color);
+    gzToggleEyedropper(false);
+    showToast('Цвет фона выбран: ' + color, 'success');
+    return true;
+  }
+
+  // Real-time crop sync: draws current pan/zoom crop to canvas, patches lottie SVG <image>
+  let _gzSyncTimer = null;
+  function gzSyncPreviewCrop() {
+    if (_gzSyncTimer) clearTimeout(_gzSyncTimer);
+    _gzSyncTimer = setTimeout(() => {
+      const srcImg = document.getElementById('gz-photo-img');
+      if (!srcImg || !srcImg.complete || !srcImg.naturalWidth) return;
+      const {zoom, x: xOff, y: yOff} = _gzS;
+      const PW = 960, PH = 540, FW = 1920;
+      const sc = PW / FW;
+      const canvas = document.createElement('canvas');
+      canvas.width = PW; canvas.height = PH;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = _gzBackgroundColor;
+      ctx.fillRect(0, 0, PW, PH);
+      const rect = _gzPhotoRect(srcImg, PW, PH, zoom, xOff * sc, yOff * sc);
+      ctx.drawImage(srcImg, rect.x, rect.y, rect.width, rect.height);
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+      document.querySelectorAll('#gz-lottie image').forEach(el => {
+        const href = el.getAttribute('href') || el.getAttribute('xlink:href') || '';
+        if (el.dataset.gzPhoto === '1' || href.includes('img_1')) {
+          el.dataset.gzPhoto = '1';
+          el.setAttribute('href', dataUrl);
+          el.setAttributeNS('http://www.w3.org/1999/xlink', 'href', dataUrl);
+        }
+      });
+    }, 30);
+  }
+
+  async function gzUploadPhoto(input) {
+    const files = Array.from(input.files || []);
+    input.value = '';
+    if (!files.length) return;
+    const added = _gzAddLocalFiles(files);
+    if (!added.length) return showToast('Выберите файлы изображений', 'error');
+    await gzSelectQueuePhoto(added[0].id);
+    showToast(`Добавлено фото: ${added.length}`, 'success');
+  }
+
+  async function gzApplyPhoto() {
+    const btn = document.getElementById('gz-apply-btn');
+    btn.disabled = true;
+    try {
+      const r = await post('/api/gazety/apply_photo', {zoom: _gzS.zoom, x: _gzS.x, y: _gzS.y});
+      if (r.error) return showToast(r.error, 'error');
+      showToast('Применено — перезагрузите превью', 'success');
+      if (document.getElementById('gz-lottie').children.length) gzLoadPreview();
+    } catch(e) { showToast('Ошибка: ' + e.message, 'error'); }
+    finally { btn.disabled = false; }
+  }
+
+  function gzSelectVersion(v, assignToActive = true) {
+    _gzVersion = v;
+    if (assignToActive) {
+      const active = _gzActivePhoto();
+      if (active) {
+        active.version = v;
+        active.status = '';
+        _gzRenderQueue();
+      }
+    }
+    document.querySelectorAll('.gz-ver').forEach(b => b.classList.toggle('active', +b.dataset.v === v));
+    gzLoadPreview();
+  }
+
+  let _gzLottiePromise = null;
+  async function _gzEnsureLottie() {
+    if (typeof lottie !== 'undefined') return true;
+    if (!_gzLottiePromise) {
+      _gzLottiePromise = new Promise(resolve => {
+        const s = document.createElement('script');
+        s.src = '/static/lottie.min.js';
+        s.onload  = () => resolve(true);
+        s.onerror = () => { _gzLottiePromise = null; resolve(false); };
+        document.head.appendChild(s);
+      });
+    }
+    return _gzLottiePromise;
+  }
+
+  async function gzLoadPreview() {
+    const requestId = ++_gzPreviewRequest;
+    _gzLottieLoading = true;
+    const container = document.getElementById('gz-lottie');
+    const placeholder = document.getElementById('gz-placeholder');
+    if (_gzAnim) { try { _gzAnim.destroy(); } catch(e){} _gzAnim = null; }
+    container.innerHTML = '';
+    placeholder.textContent = 'Загрузка плеера...';
+    placeholder.style.display = '';
+
+    if (!await _gzEnsureLottie()) {
+      if (requestId !== _gzPreviewRequest) return;
+      placeholder.textContent = 'Не удалось загрузить lottie-web (нет интернета?)';
+      _gzLottieLoading = false;
+      return;
+    }
+
+    if (requestId !== _gzPreviewRequest) return;
+    placeholder.textContent = 'Загрузка анимации...';
+    let animData;
+    try {
+      const resp = await fetch('/api/gazety/data/' + _gzVersion);
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      animData = await resp.json();
+    } catch(e) {
+      if (requestId !== _gzPreviewRequest) return;
+      placeholder.textContent = 'Ошибка загрузки: ' + e.message;
+      _gzLottieLoading = false;
+      return;
+    }
+    if (requestId !== _gzPreviewRequest) return;
+    placeholder.style.display = 'none';
+
+    _gzAnim = lottie.loadAnimation({
+      container, renderer: 'svg', loop: false, autoplay: false, animationData: animData,
+    });
+    _gzAnim.addEventListener('data_failed', () => {
+      if (requestId !== _gzPreviewRequest) return;
+      placeholder.textContent = 'Ошибка воспроизведения';
+      placeholder.style.display = '';
+      _gzLottieLoading = false;
+    });
+    _gzAnim.addEventListener('DOMLoaded', () => {
+      if (requestId !== _gzPreviewRequest) return;
+      _gzAnim.goToAndStop(22, true);
+      setTimeout(gzSyncPreviewCrop, 50);
+      _gzLottieLoading = false;
+    });
+  }
+
+  function gzSetProgress(msg, pct) {
+    const wrap = document.getElementById('gz-render-status');
+    if (!msg) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    document.getElementById('gz-render-status-text').textContent = msg;
+    document.getElementById('gz-render-progress-bar').style.width = pct + '%';
+  }
+
+  async function gzRender(options = {}) {
+    const btn = document.getElementById('gz-render-btn');
+    const batch = !!options.batch;
+    const photo = options.photo || _gzActivePhoto();
+    const prefix = options.prefix ? options.prefix + ' · ' : '';
+    let renderContainer = null;
+    let renderAnimation = null;
+    if (!batch) {
+      _gzRenderCancelled = false;
+      _gzSetRenderControls(true);
+      btn.textContent = '⏳ Рендер...';
+    }
+    _gzRenderAbortController = new AbortController();
+    try {
+      if (!selProject) throw new Error('Выберите проект перед рендером');
+      if (photo && !await gzSelectQueuePhoto(photo.id)) throw new Error('Не удалось загрузить фото');
+      if (!await _gzEnsureLottie()) throw new Error('lottie-web не загружен');
+
+      gzSetProgress(prefix + 'Загрузка анимации...', 5);
+
+      const off = document.createElement('div');
+      off.style.cssText = 'position:fixed;left:-3000px;top:0;width:1920px;height:1080px;pointer-events:none';
+      document.body.appendChild(off);
+      renderContainer = off;
+
+      const animData = await fetch('/api/gazety/data/' + _gzVersion).then(r => r.json());
+      const fps = Math.round(animData.fr || 25);
+      const firstFrame = Math.floor(animData.ip || 0);
+      const lastFrame = Math.ceil(animData.op || firstFrame + 1);
+      const total = lastFrame - firstFrame;
+      if (total < 1) throw new Error('В анимации нет кадров');
+
+      const ra = lottie.loadAnimation({
+        container: off, renderer: 'svg', loop: false, autoplay: false, animationData: animData,
+      });
+      renderAnimation = ra;
+      await new Promise(resolve => {
+        ra.addEventListener('DOMLoaded', resolve);
+        ra.addEventListener('data_failed', resolve);
+        setTimeout(resolve, 5000);
+      });
+
+      gzSetProgress(prefix + 'Подготовка изображений...', 20);
+
+      const imgCache = new Map();
+      const svgEl = off.querySelector('svg');
+      if (svgEl) {
+        await Promise.all(Array.from(svgEl.querySelectorAll('image')).map(async el => {
+          const href = el.getAttribute('href') || '';
+          if (!href || href.startsWith('data:') || imgCache.has(href)) return;
+          if (href.includes('img_1')) {
+            const src = document.getElementById('gz-photo-img');
+            if (src && src.naturalWidth) {
+              const {zoom, x: xOff, y: yOff} = _gzS;
+              const FW = 1920, FH = 1080;
+              const cv = document.createElement('canvas');
+              cv.width = FW; cv.height = FH;
+              const ctx = cv.getContext('2d');
+              ctx.fillStyle = _gzBackgroundColor; ctx.fillRect(0, 0, FW, FH);
+              const rect = _gzPhotoRect(src, FW, FH, zoom, xOff, yOff);
+              ctx.drawImage(src, rect.x, rect.y, rect.width, rect.height);
+              imgCache.set(href, cv.toDataURL('image/jpeg', 0.95));
+              return;
+            }
+          }
+          try {
+            const blob = await fetch(href).then(r => r.blob());
+            const dataUrl = await new Promise(r => { const fr = new FileReader(); fr.onloadend = () => r(fr.result); fr.readAsDataURL(blob); });
+            imgCache.set(href, dataUrl);
+          } catch(e) {}
+        }));
+      }
+
+      async function captureFrame(frameNum) {
+        ra.goToAndStop(frameNum, true);
+        await new Promise(r => requestAnimationFrame(r));
+        await new Promise(r => requestAnimationFrame(r));
+        const svg = off.querySelector('svg');
+        if (!svg) return null;
+        const clone = svg.cloneNode(true);
+        clone.setAttribute('width', '1920'); clone.setAttribute('height', '1080');
+        clone.querySelectorAll('image').forEach(el => {
+          const h = el.getAttribute('href') || '';
+          if (imgCache.has(h)) el.setAttribute('href', imgCache.get(h));
+        });
+        const blobUrl = URL.createObjectURL(new Blob([new XMLSerializer().serializeToString(clone)], {type: 'image/svg+xml;charset=utf-8'}));
+        return new Promise(resolve => {
+          const img = new Image(1920, 1080);
+          img.onload = () => {
+            try {
+              const cv = document.createElement('canvas'); cv.width = 1920; cv.height = 1080;
+              cv.getContext('2d').drawImage(img, 0, 0);
+              URL.revokeObjectURL(blobUrl);
+              cv.toBlob(resolve, 'image/png');
+            } catch(e) { URL.revokeObjectURL(blobUrl); resolve(null); }
+          };
+          img.onerror = () => { URL.revokeObjectURL(blobUrl); resolve(null); };
+          img.src = blobUrl;
+        });
+      }
+
+      const start = await post('/api/gazety/render/start', {
+        version: _gzVersion,
+        project: selProject,
+        fps,
+        frame_count: total,
+        output_name: photo ? photo.name : '',
+      });
+      if (start.error) throw new Error(start.error);
+      _gzCurrentRenderId = start.render_id;
+
+      for (let index = 0; index < total; index++) {
+        if (_gzRenderCancelled) throw new DOMException('Рендер отменен', 'AbortError');
+        const frameNum = firstFrame + index;
+        const pct = 25 + Math.round((index + 1) / total * 60);
+        gzSetProgress(`${prefix}Захват кадра ${index + 1} из ${total}...`, pct);
+        const frame = await captureFrame(frameNum);
+        if (!frame) throw new Error(`Не удалось захватить кадр ${frameNum}`);
+        const fd = new FormData();
+        fd.append('frame', frame, `f${String(index).padStart(4, '0')}.png`);
+        const response = await fetch(`/api/gazety/render/${start.render_id}/frame/${index}`, {
+          method: 'POST',
+          body: fd,
+          signal: _gzRenderAbortController.signal,
+        });
+        if (!response.ok) {
+          const error = await response.json().catch(() => ({}));
+          throw new Error(error.error || `Ошибка отправки кадра ${index + 1}`);
+        }
+      }
+
+      ra.destroy();
+      renderAnimation = null;
+      document.body.removeChild(off);
+      renderContainer = null;
+
+      if (_gzRenderCancelled) throw new DOMException('Рендер отменен', 'AbortError');
+      gzSetProgress(prefix + 'Кодирование видео ProRes 4444...', 90);
+      const response = await fetch(`/api/gazety/render/${start.render_id}/finish`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: '{}',
+        signal: _gzRenderAbortController.signal,
+      });
+      const r = await response.json().catch(() => ({}));
+      if (!response.ok && !r.cancelled) throw new Error(r.error || `HTTP ${response.status}`);
+      if (r.error) throw new Error(r.error);
+      gzSetProgress(prefix + '✓ Сохранено: ' + r.file, 100);
+      if (!batch) showToast('Сохранено: ' + r.file, 'success');
+      return true;
+
+    } catch(e) {
+      const cancelled = _gzRenderCancelled || e.name === 'AbortError';
+      if (!batch) showToast(cancelled ? 'Рендер отменен' : 'Ошибка рендера: ' + e.message, cancelled ? 'success' : 'error');
+      gzSetProgress(prefix + (cancelled ? 'Рендер отменен' : 'Ошибка: ' + e.message), 0);
+      return false;
+    }
+    finally {
+      if (renderAnimation) {
+        try { renderAnimation.destroy(); } catch(e) {}
+      }
+      if (renderContainer && renderContainer.parentNode) renderContainer.parentNode.removeChild(renderContainer);
+      _gzCurrentRenderId = null;
+      _gzRenderAbortController = null;
+      if (!batch) {
+        _gzSetRenderControls(false);
+        btn.textContent = 'Рендер выбранной';
+        setTimeout(() => gzSetProgress('', 0), 4000);
+      }
+    }
+  }
+
+  async function gzRenderAll() {
+    if (!_gzQueue.length) return showToast('Добавьте фотографии в очередь', 'error');
+    if (!selProject) return showToast('Выберите проект перед рендером', 'error');
+
+    const allBtn = document.getElementById('gz-render-all-btn');
+    _gzRenderCancelled = false;
+    _gzBatchRendering = true;
+    _gzSetRenderControls(true);
+    allBtn.textContent = '⏳ Массовый рендер...';
+    _gzSaveActiveTransform();
+
+    let completed = 0;
+    try {
+      for (let index = 0; index < _gzQueue.length; index++) {
+        if (_gzRenderCancelled) break;
+        const photo = _gzQueue[index];
+        photo.status = 'rendering';
+        _gzRenderQueue();
+        const ok = await gzRender({
+          batch: true,
+          photo,
+          prefix: `${index + 1}/${_gzQueue.length} ${photo.name}`,
+        });
+        photo.status = ok ? 'done' : 'error';
+        if (ok) completed++;
+        _gzRenderQueue();
+        if (_gzRenderCancelled) break;
+      }
+      if (_gzRenderCancelled) {
+        showToast(`Рендер отменен. Готово файлов: ${completed}`, 'success');
+        return;
+      }
+      const failed = _gzQueue.length - completed;
+      showToast(
+        failed ? `Готово: ${completed}, ошибок: ${failed}` : `Готово файлов: ${completed}`,
+        failed ? 'error' : 'success'
+      );
+    } finally {
+      _gzBatchRendering = false;
+      _gzSetRenderControls(false);
+      allBtn.textContent = 'Рендер всей очереди';
+      setTimeout(() => gzSetProgress('', 0), 5000);
+    }
+  }
+
+  // Drag-to-pan on lottie preview — scale from screen px to full-res px dynamically
+  (() => {
+    let _gzDrag = null;
+    const pw = () => document.getElementById('gz-preview-wrap');
+    document.addEventListener('mousedown', e => {
+      const w = pw();
+      if (!w || !w.contains(e.target)) return;
+      if (_gzEyedropperActive) {
+        e.preventDefault();
+        gzPickBackgroundAt(e.clientX, e.clientY);
+        return;
+      }
+      const rect = w.getBoundingClientRect();
+      const sc = _GFW / rect.width;  // screen px → 1920px space
+      _gzDrag = {mx: e.clientX, my: e.clientY, sx: _gzS.x, sy: _gzS.y, sc};
+      w.classList.add('dragging');
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+      if (!_gzDrag) return;
+      _gzS = _gzClamp({zoom: _gzS.zoom,
+        x: _gzDrag.sx + (e.clientX - _gzDrag.mx) * _gzDrag.sc,
+        y: _gzDrag.sy + (e.clientY - _gzDrag.my) * _gzDrag.sc});
+      _gzApplyEditor();
+    });
+    document.addEventListener('mouseup', () => {
+      if (_gzDrag) { const w = pw(); if (w) w.classList.remove('dragging'); _gzDrag = null; }
+    });
+    // Scroll to zoom on preview
+    document.addEventListener('wheel', e => {
+      const w = pw();
+      if (!w || !w.contains(e.target)) return;
+      e.preventDefault();
+      const rect = w.getBoundingClientRect();
+      const pointX = (e.clientX - rect.left) * (_GFW / rect.width) - _GFW / 2;
+      const pointY = (e.clientY - rect.top) * (_GFH / rect.height) - _GFH / 2;
+      const factor = e.deltaY > 0 ? 0.93 : 1.07;
+      _gzS = _gzZoomAtPoint(_gzS.zoom * factor, pointX, pointY);
+      _gzApplyEditor();
+    }, {passive: false});
+  })();
+
+  // Init editor display on load
+  _gzApplyEditor();
 </script>
 </body>
 </html>
