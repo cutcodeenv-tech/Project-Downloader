@@ -284,6 +284,10 @@ def _job_status_locked() -> dict:
         "elapsed_seconds": int(now - started_at) if started_at else 0,
         "step_elapsed_seconds": int(now - step_started_at) if step_started_at else 0,
         "last_event_seq": int(_current_job.get("event_seq") or 0),
+        "dl_file": _current_job.get("dl_file") or "",
+        "dl_percent": round(float(_current_job.get("dl_percent") or 0), 1),
+        "dl_speed": _current_job.get("dl_speed") or "",
+        "dl_eta": _current_job.get("dl_eta"),
         "log_history": list(_current_job.get("log_history") or []),
     }
 
@@ -341,10 +345,26 @@ def _set_step_locked(title: str) -> None:
     _set_progress_locked(step_progress=0.0)
 
 
+def _clean_media_name(raw: str) -> str:
+    """Из пути yt-dlp ('…/Title [id].f137.mp4') делает читаемое 'Title [id]'."""
+    name = os.path.basename((raw or "").strip().strip('"'))
+    name = re.sub(r"\.f\d+(?=\.[A-Za-z0-9]+$)", "", name)        # убрать .f137 перед расширением
+    name = re.sub(r"\.(mp4|m4a|webm|mkv|part|ytdl|temp)$", "", name, flags=re.I)
+    return name.strip()
+
+
 def _parse_job_line_locked(text: str) -> None:
     clean = _clean_log_text(text)
     if not clean:
         return
+
+    # Текущий скачиваемый файл (yt-dlp): Destination / Merger.
+    dest_match = re.search(r"\[download\]\s+Destination:\s+(.+)", clean)
+    if dest_match:
+        _current_job["dl_file"] = _clean_media_name(dest_match.group(1))
+    merge_match = re.search(r'Merging formats into\s+"(.+)"', clean)
+    if merge_match:
+        _current_job["dl_file"] = _clean_media_name(merge_match.group(1))
 
     if "Получаю информацию о каналах" in clean:
         _set_step_locked("Метаданные каналов")
@@ -371,12 +391,22 @@ def _parse_job_line_locked(text: str) -> None:
         sub_total = max(1, int(item_match.group(2)))
         _current_job["sub_index"] = sub_index
         _current_job["sub_total"] = sub_total
+        # начался новый элемент — сбрасываем детали скачивания одного видео
+        _current_job["dl_file"] = ""
+        _current_job["dl_percent"] = 0.0
+        _current_job["dl_speed"] = ""
+        _current_job["dl_eta"] = None
         _set_progress_locked(step_progress=sub_index / sub_total * 100.0)
 
     download_match = re.search(r"\[download\]\s+(\d+(?:\.\d+)?)%\s+.*?(?:ETA\s+([0-9:]+))?", clean, re.I)
     if download_match:
         download_progress = float(download_match.group(1))
         eta_seconds = _duration_from_eta(download_match.group(2))
+        # скорость одного видео ('… at 2.34MiB/s ETA …' или 'Unknown B/s')
+        speed_match = re.search(r"\bat\s+(.+?)\s+ETA\b", clean)
+        _current_job["dl_percent"] = download_progress
+        _current_job["dl_speed"] = speed_match.group(1).strip() if speed_match else ""
+        _current_job["dl_eta"] = eta_seconds
         sub_index = _current_job.get("sub_index")
         sub_total = _current_job.get("sub_total")
         if sub_index and sub_total:
@@ -404,6 +434,10 @@ def _emit_job_event(item: dict) -> dict:
                 _current_job["eta_seconds"] = None
                 _current_job["step_eta_seconds"] = None
                 _current_job["finished_at"] = time.time()
+                _current_job["dl_file"] = ""
+                _current_job["dl_percent"] = 0.0
+                _current_job["dl_speed"] = ""
+                _current_job["dl_eta"] = None
             _current_job.setdefault("log_history", []).append(event)
             if len(_current_job["log_history"]) > 2000:
                 _current_job["log_history"] = _current_job["log_history"][-2000:]
@@ -504,6 +538,10 @@ def _start_job(cmd, env=None, cwd=None, job_title: str = "", steps: list[str] | 
                 "step_eta_seconds": None,
                 "sub_index": None,
                 "sub_total": None,
+                "dl_file": "",
+                "dl_percent": 0.0,
+                "dl_speed": "",
+                "dl_eta": None,
             })
             _job_condition.notify_all()
     threading.Thread(
