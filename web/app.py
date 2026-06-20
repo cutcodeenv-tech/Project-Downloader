@@ -801,6 +801,114 @@ def api_install_all():
     return (jsonify({"status": "started"}) if ok else jsonify({"error": msg})), (200 if ok else 409)
 
 
+# ── Self-update (git) ───────────────────────────────────────────────────────────
+def _run_git(args, timeout=90):
+    return subprocess.run(["git", *args], cwd=str(BASE_DIR),
+                          capture_output=True, text=True, timeout=timeout)
+
+
+def _git_out(args):
+    try:
+        r = _run_git(args)
+    except Exception:
+        return ""
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def _detect_remote():
+    remotes = _git_out(["remote"]).split()
+    for pref in ("project-downloader", "origin"):
+        if pref in remotes:
+            return pref
+    return remotes[0] if remotes else ""
+
+
+def _update_status(do_fetch=False):
+    if not (BASE_DIR / ".git").exists():
+        return {"git": False, "available": False, "reason": "Проект не под git"}
+    branch = _git_out(["rev-parse", "--abbrev-ref", "HEAD"]) or "main"
+    remote = _detect_remote()
+    if not remote:
+        return {"git": True, "available": False, "reason": "Не настроена удалёнка", "branch": branch}
+    if do_fetch:
+        try:
+            f = _run_git(["fetch", remote, "--quiet"], timeout=120)
+        except Exception as exc:
+            return {"git": True, "available": False, "reason": f"fetch не удался: {exc}", "branch": branch, "remote": remote}
+        if f.returncode != 0:
+            return {"git": True, "available": False, "reason": f"fetch не удался: {(f.stderr or '').strip()[:200]}", "branch": branch, "remote": remote}
+    ref = f"{remote}/{branch}"
+    remote_sha = _git_out(["rev-parse", ref])
+    if not remote_sha:
+        return {"git": True, "available": False, "reason": f"Нет ветки {ref}", "branch": branch, "remote": remote}
+    counts = _git_out(["rev-list", "--left-right", "--count", f"HEAD...{ref}"]).split()
+    ahead = int(counts[0]) if len(counts) == 2 else 0
+    behind = int(counts[1]) if len(counts) == 2 else 0
+    commits, deps_changed = [], False
+    if behind:
+        commits = [l for l in _git_out(["log", "--oneline", "--no-decorate", "-20", f"HEAD..{ref}"]).splitlines() if l.strip()]
+        deps_changed = "requirements.txt" in _git_out(["diff", "--name-only", f"HEAD..{ref}"]).split()
+    return {
+        "git": True, "available": behind > 0, "behind": behind, "ahead": ahead,
+        "local": _git_out(["rev-parse", "HEAD"])[:7], "remote_sha": remote_sha[:7],
+        "branch": branch, "remote": remote, "commits": commits,
+        "deps_changed": deps_changed, "dirty": bool(_git_out(["status", "--porcelain"])),
+    }
+
+
+@app.route("/api/ping")
+def api_ping():
+    return jsonify({"ok": True})
+
+
+@app.route("/api/update/check")
+def api_update_check():
+    do_fetch = request.args.get("fetch", "1") != "0"
+    try:
+        return jsonify(_update_status(do_fetch=do_fetch))
+    except Exception as exc:
+        return jsonify({"git": True, "available": False, "reason": str(exc)})
+
+
+def _restart_process(deps_changed=False):
+    if deps_changed:
+        req = BASE_DIR / "requirements.txt"
+        if req.exists():
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req)],
+                               capture_output=True, text=True, timeout=900)
+            except Exception:
+                pass
+    time.sleep(1.2)  # дать HTTP-ответу дойти до браузера
+    if _settings.get("port"):
+        os.environ["OSNOVATELI_PORT"] = str(_settings["port"])
+    os.environ["OSNOVATELI_OPEN_BROWSER"] = "0"  # не открывать новую вкладку
+    os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)])
+
+
+@app.route("/api/update/apply", methods=["POST"])
+def api_update_apply():
+    with _job_condition:
+        if _current_job.get("running"):
+            return jsonify({"error": "Идёт задача — дождитесь её завершения перед обновлением"}), 409
+    status = _update_status(do_fetch=True)
+    if not status.get("git"):
+        return jsonify({"error": status.get("reason", "Проект не под git")}), 400
+    if not status.get("available"):
+        return jsonify({"error": status.get("reason") or "Обновлений нет"}), 400
+    ref = f"{status['remote']}/{status['branch']}"
+    merge = _run_git(["merge", "--ff-only", ref], timeout=120)
+    if merge.returncode != 0:
+        return jsonify({
+            "error": "Не удалось обновить: история разошлась или есть локальные изменения.",
+            "detail": (merge.stderr or merge.stdout or "").strip()[:500],
+        }), 409
+    deps_changed = bool(status.get("deps_changed"))
+    threading.Thread(target=_restart_process, kwargs={"deps_changed": deps_changed}, daemon=True).start()
+    return jsonify({"status": "updated", "restarting": True, "deps_changed": deps_changed,
+                    "pulled_to": _git_out(["rev-parse", "HEAD"])[:7]})
+
+
 # ── Pipeline routes ────────────────────────────────────────────────────────────
 @app.route("/api/run/new_project", methods=["POST"])
 def api_run_new_project():
@@ -1536,6 +1644,18 @@ def api_status():
 
 
 # ── Free port ──────────────────────────────────────────────────────────────────
+def _is_port_free(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        # SO_REUSEADDR — как у werkzeug, иначе порт после рестарта (TIME_WAIT)
+        # ложно считается занятым и приложение уедет на другой порт.
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s.bind(("127.0.0.1", port))
+            return True
+        except OSError:
+            return False
+
+
 def find_free_port(start: int = 7420, end: int = 7499) -> int:
     for port in range(start, end):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -1594,7 +1714,10 @@ def _remove_pid_file():
 
 def main():
     atexit.register(_remove_pid_file)
-    port = find_free_port()
+    # При самообновлении переиспользуем тот же порт, чтобы вкладка переподключилась.
+    requested_port = int(os.environ.get("OSNOVATELI_PORT") or 0)
+    port = requested_port if (requested_port and _is_port_free(requested_port)) else find_free_port()
+    _settings["port"] = port
     url = f"http://localhost:{port}"
 
     print("=== OSNOVATELI.DOC Web Interface ===")

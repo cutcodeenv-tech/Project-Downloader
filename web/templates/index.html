@@ -281,6 +281,13 @@
   </div>
 </header>
 
+<div id="updateBanner" style="display:none;align-items:center;gap:12px;padding:9px 20px;background:rgba(99,102,241,.12);border-bottom:1px solid var(--border);font-size:13px;color:var(--text);flex-shrink:0">
+  <span style="font-size:15px">⬆️</span>
+  <span id="updateText" style="flex:1;line-height:1.4"></span>
+  <button id="updateApplyBtn" onclick="applyUpdate()" style="background:var(--accent);border:none;border-radius:5px;color:#fff;font-size:12px;font-weight:500;padding:6px 12px;cursor:pointer">Обновить и перезапустить</button>
+  <button onclick="document.getElementById('updateBanner').style.display='none'" title="Скрыть" style="background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;line-height:1">✕</button>
+</div>
+
 <div class="layout">
   <aside>
     <div style="padding:12px 14px 8px;flex-shrink:0">
@@ -360,6 +367,7 @@
           <button class="ibtn" onclick="runInstall('ffmpeg')">Установить ffmpeg</button>
           <button class="ibtn" onclick="runInstall('realesrgan')">Установить Real-ESRGAN</button>
           <button class="ibtn" onclick="refreshDeps()">↻ Обновить статус</button>
+          <button class="ibtn" onclick="checkUpdate(true)">⬆️ Проверить обновления</button>
         </div>
       </div>
     </div>
@@ -1406,6 +1414,56 @@
     setTimeout(()=>t.remove(), 3000);
   }
 
+  // ── Self-update ───────────────────────────────────────────────────────────
+  function _pluralCommits(n){ const a=n%10,b=n%100;
+    if(a===1&&b!==11) return 'новый коммит';
+    if(a>=2&&a<=4&&(b<10||b>=20)) return 'новых коммита';
+    return 'новых коммитов'; }
+
+  async function checkUpdate(announce){
+    let d=null;
+    try{ d = await (await fetch('/api/update/check',{cache:'no-store'})).json(); }catch(e){ return; }
+    const banner=document.getElementById('updateBanner');
+    if(d && d.available){
+      const n=d.behind||0;
+      const esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      const first=(d.commits&&d.commits[0])?esc(d.commits[0]):'';
+      document.getElementById('updateText').innerHTML =
+        `Доступно обновление: <b>${n}</b> ${_pluralCommits(n)}`
+        + (first?` — <span style="color:var(--muted)">${first}${n>1?' …':''}</span>`:'')
+        + (d.deps_changed?` <b style="color:var(--accent-h)">• обновятся зависимости</b>`:'');
+      banner.style.display='flex';
+    }else{
+      banner.style.display='none';
+      if(announce) showToast((d&&d.reason)?d.reason:'Обновлений нет — у вас последняя версия','ok');
+    }
+  }
+
+  async function applyUpdate(){
+    if(!confirm('Обновить проект до последней версии и перезапустить интерфейс?')) return;
+    const btn=document.getElementById('updateApplyBtn');
+    if(btn){ btn.disabled=true; btn.textContent='Обновляю…'; }
+    const d=await post('/api/update/apply',{});
+    if(d.error){ showToast(d.error,'err'); if(btn){btn.disabled=false; btn.textContent='Обновить и перезапустить';} return; }
+    document.getElementById('updateText').innerHTML='✓ Обновлено'+(d.deps_changed?' (зависимости установлены)':'')+' — перезапуск…';
+    if(btn) btn.style.display='none';
+    _waitForRestart();
+  }
+
+  function _waitForRestart(){
+    // Ждём, пока сервер уйдёт на перезапуск (down), затем снова поднимется (up).
+    // deps_changed может тянуть pip install несколько минут — отсюда большой лимит.
+    let phase='down', tries=0;
+    const iv=setInterval(async()=>{
+      tries++;
+      let up=false;
+      try{ const r=await fetch('/api/ping?_='+Date.now(),{cache:'no-store'}); up=r.ok; }catch(e){ up=false; }
+      if(phase==='down' && !up) phase='up';
+      else if(phase==='up' && up){ clearInterval(iv); location.reload(); }
+      if(tries>600){ clearInterval(iv); showToast('Перезапуск занимает дольше обычного — обновите страницу вручную','err'); }
+    },700);
+  }
+
   (async()=>{
     syncFlowCards('np');
     syncFlowCards('ed');
@@ -1415,6 +1473,8 @@
     renderLogHistory(s.log_history || []);
     updateJobStatus(s);
     if(s.running) startStreaming({resetLog:false});
+    checkUpdate(false);
+    setInterval(()=>checkUpdate(false), 5*60*1000);  // авто-проверка раз в 5 минут
   })();
 
   // ── Photo placeholders editor ─────────────────────────────────────────────

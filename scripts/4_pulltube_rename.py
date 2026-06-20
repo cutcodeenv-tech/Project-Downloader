@@ -22,6 +22,7 @@ except Exception:  # pragma: no cover
     requests = None
 
 from path_utils import get_data_dir
+from youtube_utils import youtube_url_kind, clean_url, extract_video_id
 _DATA_DIR = get_data_dir(__file__)
 
 REQUEST_TIMEOUT = 20
@@ -225,6 +226,22 @@ def already_prefixed(name: str, index: str) -> bool:
     return name.startswith(f"{index} ")
 
 
+def _strip_source_prefix(filename: str) -> str:
+    """'B5_1 Title [id].mp4' -> 'Title [id].mp4' (убирает префикс источника)."""
+    return re.sub(r'^[A-Za-z]+\d+(?:_\d+)? ', '', filename, count=1)
+
+
+def find_file_by_video_id(files: List[Path], video_id: str) -> Optional[Path]:
+    """Ищет скачанный файл по [id] в имени (yt-dlp кладёт '%(title)s [%(id)s].ext')."""
+    if not video_id:
+        return None
+    tag = f"[{video_id}]"
+    for f in files:
+        if tag in f.name:
+            return f
+    return None
+
+
 def find_best_match_file(files: List[Path], title: str, norm_by_path: Dict[Path, str]) -> Optional[Path]:
     norm_title = normalize_text_for_match(title)
     if not norm_title:
@@ -349,86 +366,120 @@ def process(
     successful_renames = 0
     failed_renames = 0
 
+    def _log(source_address, original, new_name, url, title, status):
+        rename_log_data.append({
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'source_address': source_address,
+            'original_filename': original,
+            'new_filename': new_name,
+            'youtube_url': url,
+            'youtube_title': title,
+            'status': status,
+        })
+
+    # Группируем ячейки по видео; каналы/шортсы/плейлисты пропускаем.
+    groups: Dict[str, Dict] = {}
+    skipped_nonvideo = 0
     for source_address, url in pairs:
-        print(f"\n🔍 Обрабатываю: {source_address} -> {url}")
-
-        title = get_youtube_title(
-            url,
-            session=http_session,
-            cookies_file=cookies_file,
-            cookies_from_browser=cookies_from_browser,
-        )
-        time.sleep(0.12)
-
-        if not title:
-            print(f"❌ Не удалось извлечь название для {source_address}")
-            rename_log_data.append({
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'source_address': source_address,
-                'original_filename': '',
-                'new_filename': '',
-                'youtube_url': url,
-                'youtube_title': '',
-                'status': 'FAILED - не удалось извлечь название'
-            })
-            failed_renames += 1
+        if youtube_url_kind(url) != 'video':
+            skipped_nonvideo += 1
+            print(f"⏭️  Пропуск (не одиночное видео): {source_address} -> {url}")
             continue
+        cleaned = clean_url(url)
+        vid = extract_video_id(cleaned)
+        key = vid or cleaned
+        group = groups.setdefault(key, {'url': cleaned, 'vid': vid, 'cells': []})
+        group['cells'].append(source_address)
 
-        print(f"📺 Название: {title}")
+    if skipped_nonvideo:
+        print(f"\n⏭️  Пропущено ссылок (каналы/шортсы/плейлисты): {skipped_nonvideo}")
 
-        match = find_best_match_file(files, title, norm_by_path)
-        if not match:
-            print(f"❌ Не найден соответствующий файл для: {source_address}")
-            rename_log_data.append({
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'source_address': source_address,
-                'original_filename': '',
-                'new_filename': '',
-                'youtube_url': url,
-                'youtube_title': title,
-                'status': 'FAILED - файл не найден'
-            })
-            failed_renames += 1
-            continue
+    for key, group in groups.items():
+        cells = group['cells']
+        url = group['url']
+        vid = group['vid']
+        dup_note = f"  (повторов: {len(cells)})" if len(cells) > 1 else ""
+        print(f"\n🔍 Видео {vid or url}{dup_note} → ячейки: {', '.join(cells)}")
 
-        print(f"📁 Найден файл: {match.name}")
+        # base_name — имя файла без префикса источника; canonical — готовая копия для copy.
+        base_name: Optional[str] = None
+        canonical: Optional[Path] = None  # уже переименованный файл (для copy)
+        src_in_video: Optional[Path] = None  # свежий файл из video/ (для move)
 
-        if already_prefixed(match.name, source_address):
-            print(f"⏭️  Файл уже имеет префикс, пропуск: {match.name}")
-            continue
+        # 1) Идемпотентность: уже переименованная копия этого видео в renamed_videos.
+        if vid and renamed_dir.exists():
+            for f in renamed_dir.iterdir():
+                if f.is_file() and f"[{vid}]" in f.name and f.suffix.lower() in VIDEO_EXTENSIONS:
+                    canonical = f
+                    base_name = _strip_source_prefix(f.name)
+                    break
 
-        new_name = f"{source_address} {match.name}"
-        target_file = renamed_dir / new_name
-        if target_file.exists():
-            print(f"⚠️  Файл с именем {new_name} уже существует, пропуск")
-            continue
+        # 2) Иначе берём свежий файл из video/: сначала по [id], потом по названию.
+        if canonical is None:
+            src_in_video = find_file_by_video_id(files, vid)
+            if src_in_video is None:
+                title = get_youtube_title(
+                    url, session=http_session,
+                    cookies_file=cookies_file, cookies_from_browser=cookies_from_browser,
+                )
+                time.sleep(0.12)
+                if not title:
+                    print("❌ Не удалось извлечь название")
+                    for sa in cells:
+                        _log(sa, '', '', url, '', 'FAILED - не удалось извлечь название')
+                        failed_renames += 1
+                    continue
+                src_in_video = find_best_match_file(files, title, norm_by_path)
+            if src_in_video is None:
+                print("❌ Соответствующий файл не найден")
+                for sa in cells:
+                    _log(sa, '', '', url, '', 'FAILED - файл не найден')
+                    failed_renames += 1
+                continue
+            base_name = src_in_video.name
+            print(f"📁 Файл: {src_in_video.name}")
 
-        try:
-            result_file = move_and_rename_file(match, renamed_dir, new_name, dry_run=dry_run)
-            if result_file:
-                rename_log_data.append({
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'source_address': source_address,
-                    'original_filename': match.name,
-                    'new_filename': new_name,
-                    'youtube_url': url,
-                    'youtube_title': title,
-                    'status': 'SUCCESS'
-                })
+        # 3) Распределяем по всем ячейкам: первой — move, остальным — копии.
+        for source_address in cells:
+            new_name = f"{source_address} {base_name}"
+            target_file = renamed_dir / new_name
+            if target_file.exists():
+                print(f"⏭️  Уже есть: {new_name}")
+                canonical = canonical or target_file
+                continue
+            try:
+                if not dry_run:
+                    renamed_dir.mkdir(parents=True, exist_ok=True)
+                if src_in_video is not None:
+                    # первый файл — перемещаем
+                    original = src_in_video.name
+                    if dry_run:
+                        print(f"DRY-RUN move: {src_in_video.name} -> {new_name}")
+                    else:
+                        shutil.move(str(src_in_video), str(target_file))
+                        print(f"OK move: -> {new_name}")
+                        files.remove(src_in_video)
+                    canonical = target_file
+                    src_in_video = None
+                else:
+                    # остальные ячейки — копируем из готовой версии
+                    if canonical is None:
+                        print(f"❌ Нет исходного файла для копии: {new_name}")
+                        _log(source_address, '', new_name, url, base_name, 'FAILED - нет файла для копии')
+                        failed_renames += 1
+                        continue
+                    if dry_run:
+                        print(f"DRY-RUN copy: {canonical.name} -> {new_name}")
+                    else:
+                        shutil.copy2(str(canonical), str(target_file))
+                        print(f"OK copy: -> {new_name}")
+                    original = canonical.name
+                _log(source_address, original, new_name, url, base_name, 'SUCCESS')
                 successful_renames += 1
-                files.remove(match)
-        except Exception as e:
-            print(f"❌ Ошибка при перемещении файла: {e}")
-            rename_log_data.append({
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'source_address': source_address,
-                'original_filename': match.name,
-                'new_filename': new_name,
-                'youtube_url': url,
-                'youtube_title': title,
-                'status': f'FAILED - {str(e)}'
-            })
-            failed_renames += 1
+            except Exception as e:
+                print(f"❌ Ошибка: {e}")
+                _log(source_address, base_name or '', new_name, url, base_name, f'FAILED - {str(e)}')
+                failed_renames += 1
 
     if rename_log_data:
         save_rename_log(project_name, rename_log_data)

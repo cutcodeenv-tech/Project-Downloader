@@ -138,6 +138,7 @@ if load_dotenv is not None and os.path.exists(ENV_FILE):
 
 from photo_placeholder_ops import install_realesrgan
 from path_utils import ensure_project_marker, write_project_marker, list_projects
+from youtube_utils import is_downloadable_youtube_video
 
 
 # Project structure creation function
@@ -613,7 +614,8 @@ def _generate_pulltube_links(database_dir: str, project_name: str, is_reparse: b
             reader = csv.DictReader(f)
             for row in reader:
                 url = (row.get('url') or '').strip()
-                if url and not is_shorts_url(url):
+                # Только конкретные видео: каналы / шортсы / плейлисты пропускаем.
+                if url and is_downloadable_youtube_video(url):
                     csv_links.append(clean_url(url))
     except Exception as e:
         print(f"⚠️  Ошибка чтения YouTube CSV: {e}")

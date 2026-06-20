@@ -28,6 +28,7 @@ DEFAULT_YTDLP_RETRY_COUNT = 3
 DEFAULT_YTDLP_RETRY_BASE_SECONDS = 5.0
 
 from path_utils import get_data_dir
+from youtube_utils import youtube_url_kind
 
 BASE_DIR = Path(os.getenv('BASE_DIR') or Path(__file__).resolve().parent.parent)
 PROJECTS_ROOT = get_data_dir(__file__)
@@ -375,6 +376,7 @@ def main():
     # директория для видео
     upd_subdir = os.getenv('UPD_SUBDIR', '').strip()
     base_video_dir = os.path.join(project_dir, 'video')
+    renamed_dir = os.path.join(project_dir, 'renamed_videos')
     video_dir = os.path.join(base_video_dir, upd_subdir) if upd_subdir else base_video_dir
     os.makedirs(video_dir, exist_ok=True)
     if upd_subdir:
@@ -382,23 +384,43 @@ def main():
     else:
         print(f'📁 Директория: {video_dir}')
 
-    # фильтрация: шортсы, уже скачанные, очистка list= из URL
+    # фильтрация: каналы/плейлисты/шортсы, дубликаты, уже скачанные, очистка list=
     to_download = []
     skipped = []
     skipped_shorts = []
+    skipped_nonvideo = []
+    seen_vids = set()
     for url in all_links:
-        if is_shorts_url(url):
+        kind = youtube_url_kind(url)
+        if kind == 'shorts':
             skipped_shorts.append(url)
+            continue
+        if kind != 'video':
+            # канал / плейлист / прочее — не качаем
+            skipped_nonvideo.append(url)
             continue
         url = clean_url(url)
         vid_id = extract_video_id(url)
-        if vid_id and video_already_downloaded(base_video_dir, vid_id):
+        if vid_id and vid_id in seen_vids:
+            # та же ссылка встречается несколько раз — качаем один раз
+            continue
+        if vid_id:
+            seen_vids.add(vid_id)
+        # уже скачано (в video/ или уже переименовано в renamed_videos/) — пропускаем
+        already = vid_id and (
+            video_already_downloaded(base_video_dir, vid_id)
+            or video_already_downloaded(renamed_dir, vid_id)
+        )
+        if already:
             skipped.append(url)
         else:
             to_download.append(url)
 
     if skipped_shorts:
         print(f'⏭️  Шортсы (пропускаем): {len(skipped_shorts)}')
+
+    if skipped_nonvideo:
+        print(f'⏭️  Каналы/плейлисты (пропускаем): {len(skipped_nonvideo)}')
 
     if skipped:
         print(f'⏭️  Уже скачаны (пропускаем): {len(skipped)}')
