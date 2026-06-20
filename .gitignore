@@ -14,4 +14,5 @@ __pycache__/
 .DS_Store
 *.zip
 /placeholders_screenshots/
-/cookies.txt
+cookies.txt
+**/cookies.txt
