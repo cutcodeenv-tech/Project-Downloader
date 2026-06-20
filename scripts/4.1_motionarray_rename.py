@@ -162,14 +162,20 @@ def already_prefixed(name: str, index: str) -> bool:
     return name.startswith(f"{index} ")
 
 
-def find_best_match_file(files: List[Path], title: str) -> Optional[Path]:
+def find_best_match_file(files: List[Path], title: str, norm_by_path: Dict[Path, str]) -> Optional[Path]:
     """Находит наиболее подходящий файл по названию"""
     norm_title = normalize_text_for_match(title)
+    if not norm_title:
+        return None
     candidates: List[Tuple[int, Path]] = []
     for f in files:
-        base = f.stem
-        norm_name = normalize_text_for_match(base)
-        if norm_title and norm_title in norm_name:
+        # Нормализация имени берётся из кэша — иначе при 1000 файлов и 1000 ссылок
+        # получаем 1_000_000 NFKD+regex нормализаций (O(N²)).
+        norm_name = norm_by_path.get(f)
+        if norm_name is None:
+            norm_name = normalize_text_for_match(f.stem)
+            norm_by_path[f] = norm_name
+        if norm_title in norm_name:
             # Предпочитаем более длинные имена файлов
             candidates.append((len(norm_name), f))
     if not candidates:
@@ -271,6 +277,9 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
     print(f"\n📊 Найдено ссылок в CSV: {len(pairs)}")
     print(f"📊 Найдено видеофайлов: {len(files)}")
 
+    # Нормализуем имена файлов один раз (см. find_best_match_file).
+    norm_by_path: Dict[Path, str] = {f: normalize_text_for_match(f.stem) for f in files}
+
     # Список для лога переименований
     rename_log_data = []
     successful_renames = 0
@@ -299,7 +308,7 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
         print(f"🎬 Название: {title}")
 
         # Ищем соответствующий файл
-        match = find_best_match_file(files, title)
+        match = find_best_match_file(files, title, norm_by_path)
         if not match:
             print(f"❌ Не найден соответствующий файл для: {source_address}")
             rename_log_data.append({

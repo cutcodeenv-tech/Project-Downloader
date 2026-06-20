@@ -119,19 +119,30 @@ def extract_youtube_title_oembed(url: str, session: object) -> Optional[str]:
         return None
     if not is_youtube_watch_url(url):
         return None
-    try:
-        oembed_url = (
-            "https://www.youtube.com/oembed?format=json&url="
-            + requests.utils.quote(url, safe="")
-        )
-        response = session.get(oembed_url, headers=SESSION_HEADERS, timeout=REQUEST_TIMEOUT)
-        if response.status_code >= 400:
+    oembed_url = (
+        "https://www.youtube.com/oembed?format=json&url="
+        + requests.utils.quote(url, safe="")
+    )
+    # На больших объёмах YouTube начинает отдавать 429 — делаем backoff и повтор.
+    for attempt in range(3):
+        try:
+            response = session.get(oembed_url, headers=SESSION_HEADERS, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 429:
+                if attempt < 2:
+                    retry_after = (response.headers.get("Retry-After") or "").strip()
+                    wait = min(float(retry_after), 60.0) if retry_after.isdigit() else min(2.0 * (attempt + 1), 30.0)
+                    time.sleep(wait)
+                    continue
+                return None
+            if response.status_code >= 400:
+                return None
+            title = response.json().get("title")
+            if title:
+                return str(title).strip()
             return None
-        title = response.json().get("title")
-        if title:
-            return str(title).strip()
-    except Exception as e:
-        print(f"oEmbed не смог извлечь название: {e}", file=sys.stderr)
+        except Exception as e:
+            print(f"oEmbed не смог извлечь название: {e}", file=sys.stderr)
+            return None
     return None
 
 
@@ -214,13 +225,19 @@ def already_prefixed(name: str, index: str) -> bool:
     return name.startswith(f"{index} ")
 
 
-def find_best_match_file(files: List[Path], title: str) -> Optional[Path]:
+def find_best_match_file(files: List[Path], title: str, norm_by_path: Dict[Path, str]) -> Optional[Path]:
     norm_title = normalize_text_for_match(title)
+    if not norm_title:
+        return None
     candidates: List[Tuple[int, Path]] = []
     for f in files:
-        base = f.stem
-        norm_name = normalize_text_for_match(base)
-        if norm_title and norm_title in norm_name:
+        # Нормализация имени берётся из кэша — иначе при 1000 файлов и 1000 ссылок
+        # получаем 1_000_000 NFKD+regex нормализаций (O(N²)).
+        norm_name = norm_by_path.get(f)
+        if norm_name is None:
+            norm_name = normalize_text_for_match(f.stem)
+            norm_by_path[f] = norm_name
+        if norm_title in norm_name:
             candidates.append((len(norm_name), f))
     if not candidates:
         return None
@@ -325,6 +342,9 @@ def process(
 
     http_session = requests.Session() if requests is not None else None
 
+    # Нормализуем имена файлов один раз (см. find_best_match_file).
+    norm_by_path: Dict[Path, str] = {f: normalize_text_for_match(f.stem) for f in files}
+
     rename_log_data = []
     successful_renames = 0
     failed_renames = 0
@@ -356,7 +376,7 @@ def process(
 
         print(f"📺 Название: {title}")
 
-        match = find_best_match_file(files, title)
+        match = find_best_match_file(files, title, norm_by_path)
         if not match:
             print(f"❌ Не найден соответствующий файл для: {source_address}")
             rename_log_data.append({

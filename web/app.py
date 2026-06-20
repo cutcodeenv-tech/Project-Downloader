@@ -211,7 +211,7 @@ def _ensure_mask_preview_video(base_dir: Path) -> Path:
 
 # ── Script tasks (mirrors SCRIPT_TASKS in main.py) ────────────────────────────
 SCRIPT_TASKS = [
-    {"id": "smart_cropping",      "title": "Кроп / Nano Banana 2",                    "script": "2.1_smart_cropping.py",      "needs_project": True,  "needs_image_mode": True},
+    {"id": "smart_cropping",      "title": "Кроп 16:9",                               "script": "2.1_smart_cropping.py",      "needs_project": True,  "needs_image_mode": True},
     {"id": "pullvids_download",   "title": "Скачать YouTube видео (yt-dlp)",          "script": "3.4_pullvids_download.py",   "needs_project": True},
     {"id": "pulltube_rename",     "title": "Переименовать YouTube видео",              "script": "4_pulltube_rename.py",       "needs_project": True,  "project_arg": True},
     {"id": "motionarray_rename",  "title": "Переименовать MotionArray видео",          "script": "4.1_motionarray_rename.py",  "needs_project": True,  "project_arg": True},
@@ -239,7 +239,7 @@ FLOW_STEP_CATALOG = [
     {"id": "pullvids_download", "kind": "script", "title": "Скачать YouTube видео (yt-dlp)"},
     {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео"},
     {"id": "motionarray_rename", "kind": "script", "title": "Переименовать MotionArray видео"},
-    {"id": "smart_cropping", "kind": "script", "title": "Кроп / Nano Banana 2"},
+    {"id": "smart_cropping", "kind": "script", "title": "Кроп 16:9"},
     {"id": "photo_placeholders", "kind": "script", "title": "Создать video placeholders из фото"},
     {"id": "screenshots", "kind": "script", "title": "Скриншоты other links"},
 ]

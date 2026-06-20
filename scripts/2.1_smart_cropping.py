@@ -594,27 +594,45 @@ def main():
     print("=" * 70)
     print()
 
+    import argparse
+    parser = argparse.ArgumentParser(add_help=True, description="Интеллектуальное кадрирование 16:9")
+    parser.add_argument("--input", dest="input_dir", default=None,
+                        help="Папка с исходными изображениями (вместо структуры проекта)")
+    parser.add_argument("--output", dest="output_dir", default=None,
+                        help="Папка для результата (по умолчанию <input>/../images_cropped)")
+    args, _ = parser.parse_known_args()
+
     # Проверяем и устанавливаем зависимости
     if not check_and_install_dependencies():
         print("❌ Не удалось установить необходимые зависимости!")
         return
 
-    # Запрашиваем название проекта
-    project_name = os.getenv("PROJECT_NAME", "").strip() or get_project_name()
+    # Режим внешней папки: пути заданы явно, структура проекта не нужна.
+    if args.input_dir:
+        pictures_dir = Path(args.input_dir).expanduser()
+        output_dir = (
+            Path(args.output_dir).expanduser()
+            if args.output_dir
+            else pictures_dir.parent / "images_cropped"
+        )
+        print(f"\n📂 Внешняя папка")
+        print(f"📥 Исходная директория: {pictures_dir}")
+    else:
+        # Запрашиваем название проекта
+        project_name = os.getenv("PROJECT_NAME", "").strip() or get_project_name()
 
-    # Определяем пути
-    base_dir = Path(os.getenv("BASE_DIR") or Path(__file__).parent.parent)
-    projects_root = get_data_dir(__file__)
-    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
-    base_images = projects_root / project_name / 'images'
-    base_cropped = projects_root / project_name / 'images_cropped'
-    pictures_dir = base_images / upd_subdir if upd_subdir else base_images
-    output_dir = base_cropped / upd_subdir if upd_subdir else base_cropped
+        # Определяем пути
+        projects_root = get_data_dir(__file__)
+        upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+        base_images = projects_root / project_name / 'images'
+        base_cropped = projects_root / project_name / 'images_cropped'
+        pictures_dir = base_images / upd_subdir if upd_subdir else base_images
+        output_dir = base_cropped / upd_subdir if upd_subdir else base_cropped
 
-    print(f"\n📂 Проект: {project_name}")
-    if upd_subdir:
-        print(f"🌊 Волна правок: {upd_subdir}")
-    print(f"📥 Исходная директория: {pictures_dir}")
+        print(f"\n📂 Проект: {project_name}")
+        if upd_subdir:
+            print(f"🌊 Волна правок: {upd_subdir}")
+        print(f"📥 Исходная директория: {pictures_dir}")
 
     # Проверяем существование директории с изображениями
     if not pictures_dir.exists():

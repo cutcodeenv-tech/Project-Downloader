@@ -743,14 +743,30 @@ def _metadata_from_ytdlp(url: str, logger) -> Tuple[str, str]:
     return channel, title
 
 
-def _fetch_json(session, url):
-    try:
-        response = session.get(url, headers=SESSION_HEADERS, timeout=REQUEST_TIMEOUT)
-        if response.status_code >= 400:
+def _retry_after_seconds(response, attempt: int) -> float:
+    """Сколько ждать перед повтором после 429. Уважает Retry-After, иначе экспонента."""
+    header = (response.headers.get("Retry-After") or "").strip()
+    if header.isdigit():
+        return min(float(header), 60.0)
+    return min(2.0 * (attempt + 1), 30.0)
+
+
+def _fetch_json(session, url, retries: int = 3):
+    """GET с парсингом JSON. На 429 делает backoff и повторяет (устойчивость при 1000+ ссылок)."""
+    for attempt in range(max(1, retries)):
+        try:
+            response = session.get(url, headers=SESSION_HEADERS, timeout=REQUEST_TIMEOUT)
+            if response.status_code == 429:
+                if attempt + 1 < retries:
+                    time.sleep(_retry_after_seconds(response, attempt))
+                    continue
+                return None
+            if response.status_code >= 400:
+                return None
+            return response.json()
+        except Exception:
             return None
-        return response.json()
-    except Exception:
-        return None
+    return None
 
 
 def get_channel_and_title_for_url(session, url, logger):
@@ -1230,6 +1246,10 @@ def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[st
     elif cookies_file and Path(cookies_file).exists():
         print(f"  🍪 cookies.txt: {Path(cookies_file).name}", flush=True)
 
+    # Снимок до скачивания: в video_direct все ролики лежат в одной папке,
+    # поэтому "самый свежий mp4" ненадёжен — определяем именно новый файл.
+    existing_before = set(output_dir.glob("*.mp4"))
+
     for attempt in range(1, retry_count + 1):
         captured_lines: list[str] = []
 
@@ -1250,11 +1270,14 @@ def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[st
         proc.wait()
 
         if proc.returncode == 0:
-            mp4_files = sorted(output_dir.glob("*.mp4"), key=lambda f: f.stat().st_mtime, reverse=True)
-            if not mp4_files:
+            new_files = [f for f in output_dir.glob("*.mp4") if f not in existing_before]
+            # Если новый файл не обнаружен (например, перекодирование оставило то же имя) —
+            # откатываемся на самый свежий mp4 в папке.
+            candidates = new_files or list(output_dir.glob("*.mp4"))
+            if not candidates:
                 print(f"  ❌ MP4 файл не найден в {output_dir}")
                 return False
-            latest = mp4_files[0]
+            latest = max(candidates, key=lambda f: f.stat().st_mtime)
             size_mb = latest.stat().st_size / 1024 / 1024
             print(f"  ✅ Файл: {latest.name} ({size_mb:.1f} MB)")
             return True
@@ -1585,7 +1608,7 @@ def download_images(project_name: str):
 SCRIPT_TASKS = [
     {
         "id": "smart_cropping",
-        "title": "Обработать картинки: Nano Banana 2 или crop 16:9",
+        "title": "Кроп картинок 16:9",
         "script": "2.1_smart_cropping.py",
         "needs_project": True,
         "needs_image_mode": True,
@@ -1655,7 +1678,7 @@ FLOW_STEP_CATALOG = [
     {"id": "pullvids_download", "kind": "script", "title": "Скачать YouTube видео (yt-dlp)", "script_id": "pullvids_download"},
     {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео", "script_id": "pulltube_rename"},
     {"id": "motionarray_rename", "kind": "script", "title": "Переименовать MotionArray видео", "script_id": "motionarray_rename"},
-    {"id": "smart_cropping", "kind": "script", "title": "Кроп / Nano Banana 2", "script_id": "smart_cropping"},
+    {"id": "smart_cropping", "kind": "script", "title": "Кроп 16:9", "script_id": "smart_cropping"},
     {"id": "photo_placeholders", "kind": "script", "title": "Создать video placeholders из фото", "script_id": "photo_placeholders"},
     {"id": "screenshots", "kind": "script", "title": "Скриншоты other links", "script_id": "screenshots"},
 ]
@@ -1943,19 +1966,10 @@ def select_project_name():
 
 
 def select_image_processing_mode():
-    mode = (os.getenv("IMAGE_PROCESSING_MODE") or "").strip().lower()
-    if mode in {"nano", "crop"}:
-        return mode
-
-    mode = select_option(
-        "Режим обработки картинок",
-        [
-            ("Nano Banana 2", "nano"),
-            ("Crop 16:9", "crop"),
-        ],
-    )
-    os.environ["IMAGE_PROCESSING_MODE"] = mode
-    return mode
+    # Остался единственный режим обработки картинок — crop 16:9.
+    # (Nano Banana 2 не реализован, опция убрана из интерфейса.)
+    os.environ["IMAGE_PROCESSING_MODE"] = "crop"
+    return "crop"
 
 
 def build_script_env(project_name=None, image_mode=None):
@@ -2336,7 +2350,8 @@ def run_direct_video_download():
         if _download_video_direct(url, session_dir, cookies_file):
             ok += 1
             safe_title = re.sub(r'[<>:"/\\|?*]', '_', title).strip() if title else f"video_{idx:02d}"
-            author_path = session_dir / f"{safe_title}_author.png"
+            # Префикс индекса гарантирует уникальность даже при одинаковых заголовках.
+            author_path = session_dir / f"{idx:03d}_{safe_title}_author.png"
             try:
                 _make_author_png(channel, author_path)
                 print(f"  ✅ Скачано | плашка: {author_path.name}")

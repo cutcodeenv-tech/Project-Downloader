@@ -882,7 +882,7 @@
 
   function setMode(prefix, mode) {
     imgMode[prefix] = mode;
-    ['crop','nano'].forEach(m => {
+    ['crop'].forEach(m => {
       const el = document.getElementById(`${prefix}-mode-${m}`);
       if(el) el.classList.toggle('sel', m === mode);
     });

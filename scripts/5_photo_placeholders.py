@@ -94,15 +94,15 @@ def create_video_placeholder(image_path, output_path, scratches_path, alpha_mask
             # Применяем альфа-маску: белый=непрозрачно, чёрный=прозрачно
             f'[with_scratches][alpha_mask]alphamerge[final]',
             '-map', '[final]',
-            '-c:v', 'prores_ks',  # Кодек ProRes 4444
-            '-profile:v', '4444',  # Профиль ProRes 4444 с альфа-каналом
-            '-pix_fmt', 'yuva444p10le',  # Пиксельный формат с альфа-каналом
+            '-c:v', 'qtrle',  # QuickTime Animation (RLE) — lossless, с межкадровой дельтой
+            '-pix_fmt', 'argb',  # RGBA с альфа-каналом (straight alpha, как у ProRes 4444)
+            '-g', '25',  # keyframe раз в секунду: баланс размера и перемотки
             '-r', '25',  # Частота кадров
-            '-t', '10',  # Длительность 10 секунд
+            '-t', '5',  # Длительность 5 секунд
             output_path
         ]
 
-        print(f"  🎬 Создаю видео: {os.path.basename(output_path)} (царапины + альфа-маска, ProRes 4444)")
+        print(f"  🎬 Создаю видео: {os.path.basename(output_path)} (царапины + альфа-маска, QuickTime Animation)")
 
         # Выполняем команду ffmpeg (stderr → stdout чтобы было видно в логе)
         result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
@@ -123,21 +123,32 @@ def create_video_placeholder(image_path, output_path, scratches_path, alpha_mask
 def main():
     print("=== СКРИПТ СОЗДАНИЯ PHOTO PLACEHOLDERS ===")
 
-    # Получаем название проекта
-    project_name = os.getenv("PROJECT_NAME", "").strip() or get_project_name()
+    import argparse
+    parser = argparse.ArgumentParser(add_help=True, description="Photo placeholders (QuickTime Animation, lossless alpha)")
+    parser.add_argument("--input", dest="input_dir", default=None,
+                        help="Папка с кропнутыми JPG (вместо структуры проекта)")
+    parser.add_argument("--output", dest="output_dir", default=None,
+                        help="Папка для .mov (по умолчанию <input>/../placeholders_photo)")
+    args, _ = parser.parse_known_args()
 
     # Проверяем наличие ffmpeg
     if not check_ffmpeg():
         return
 
-    # Пути к директориям и файлам
-    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
-    base_input = str(_DATA_DIR / project_name / "images_cropped")
-    base_output = str(_DATA_DIR / project_name / "placeholders_photo")
-    input_dir = os.path.join(base_input, upd_subdir) if upd_subdir else base_input
-    output_dir = os.path.join(base_output, upd_subdir) if upd_subdir else base_output
-    if upd_subdir:
-        print(f"🌊 Волна правок: {upd_subdir}")
+    # Режим внешней папки: пути заданы явно.
+    if args.input_dir:
+        input_dir = args.input_dir
+        output_dir = args.output_dir or str(Path(input_dir).expanduser().parent / "placeholders_photo")
+    else:
+        # Получаем название проекта
+        project_name = os.getenv("PROJECT_NAME", "").strip() or get_project_name()
+        upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+        base_input = str(_DATA_DIR / project_name / "images_cropped")
+        base_output = str(_DATA_DIR / project_name / "placeholders_photo")
+        input_dir = os.path.join(base_input, upd_subdir) if upd_subdir else base_input
+        output_dir = os.path.join(base_output, upd_subdir) if upd_subdir else base_output
+        if upd_subdir:
+            print(f"🌊 Волна правок: {upd_subdir}")
     scratches_path = str(_ASSETS_DIR / "scratches_add.mp4")
     alpha_mask_path = str(_ASSETS_DIR / "alpha_mask.mp4")
 
@@ -167,7 +178,7 @@ def main():
         print(f"❌ JPG файлы не найдены в директории: {input_dir}")
         return
 
-    print(f"\nПроект: {project_name}")
+    print(f"\n📥 Источник: {input_dir}")
     print(f"📁 Найдено JPG файлов в исходной директории: {len(jpg_files)}")
 
     # Получаем список существующих видео-плейсхолдеров
@@ -203,7 +214,7 @@ def main():
     print(f"Выходная директория: {output_dir}")
     print(f"Файл с царапинами: {scratches_path}")
     print(f"Альфа-маска: {alpha_mask_path}")
-    print(f"Формат вывода: ProRes 4444 с альфа-каналом")
+    print(f"Формат вывода: QuickTime Animation (qtrle), lossless, альфа-канал, 5с")
 
     successful_videos = 0
     failed_videos = 0
@@ -236,7 +247,7 @@ def main():
 
     if successful_videos > 0:
         print(f"\nГотовые видео сохранены в: {output_dir}")
-        print(f"Формат: ProRes 4444 с альфа-каналом (царапины + альфа-маска)")
+        print(f"Формат: QuickTime Animation (qtrle), lossless, альфа-канал (царапины + альфа-маска)")
 
 if __name__ == "__main__":
     main()
