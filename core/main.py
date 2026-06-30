@@ -1248,8 +1248,8 @@ def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[st
     elif cookies_file and Path(cookies_file).exists():
         print(f"  🍪 cookies.txt: {Path(cookies_file).name}", flush=True)
 
-    # Снимок до скачивания: в video_direct все ролики лежат в одной папке,
-    # поэтому "самый свежий mp4" ненадёжен — определяем именно новый файл.
+    # Снимок до скачивания: определяем именно новый файл, чтобы не зависеть
+    # от ранее лежавших в папке роликов.
     existing_before = set(output_dir.glob("*.mp4"))
 
     for attempt in range(1, retry_count + 1):
@@ -2279,8 +2279,8 @@ def run_selected_task_menu():
 def run_direct_video_download():
     """Режим 2: скачать видео по ссылкам + сразу сделать плашки с источником.
 
-    Каждый вызов создаёт папку video_direct/{YYYY-MM-DD_HH-MM-SS}/
-    Туда кладутся сами видео и PNG-плашки рядом.
+    На каждое видео создаётся отдельная папка video_direct/{название видео}/
+    Туда кладётся само видео и PNG-плашка источника рядом.
     """
     ensure_core_dependencies()
     project_name = (os.getenv("PROJECT_NAME") or "").strip() or select_project_name()
@@ -2320,15 +2320,14 @@ def run_direct_video_download():
         print("Нет видео для скачивания (все — шортсы).")
         return
 
-    session_ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     project_dir = Path(DATA_DIR) / project_name
-    session_dir = project_dir / "video_direct" / session_ts
-    session_dir.mkdir(parents=True, exist_ok=True)
+    video_direct_root = project_dir / "video_direct"
+    video_direct_root.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n📁 Папка сессии: video_direct/{session_ts}/")
+    print(f"\n📁 Корень: video_direct/ (отдельная папка на каждое видео)")
     print(f"📊 Видео к скачиванию: {len(urls)}")
 
-    # Получаем метаданные каналов заранее (для плашек)
+    # Получаем метаданные каналов заранее (для плашек и названий папок)
     req_session = requests.Session()
     logger = Logger()
     print("\n🔍 Получаю информацию о каналах...")
@@ -2341,6 +2340,15 @@ def run_direct_video_download():
 
     cookies_file = get_cookies_file()
 
+    def _unique_video_dir(base_name: str) -> Path:
+        """Папка под видео по его названию; при совпадении добавляет суффикс."""
+        candidate = video_direct_root / base_name
+        suffix = 2
+        while candidate.exists():
+            candidate = video_direct_root / f"{base_name} ({suffix})"
+            suffix += 1
+        return candidate
+
     print(f"\n=== Скачивание ===")
     ok = fail = 0
     pause_seconds = get_video_download_pause_seconds()
@@ -2349,19 +2357,30 @@ def run_direct_video_download():
         label = (title or url)[:60]
         print(f"\n[{idx}/{len(urls)}] {label}")
 
-        if _download_video_direct(url, session_dir, cookies_file):
+        # Папка называется по названию видео, а не по дате скачивания.
+        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title).strip() if title else ""
+        safe_title = safe_title.strip(". ")[:120] or f"video_{idx:02d}"
+        video_dir = _unique_video_dir(safe_title)
+        video_dir.mkdir(parents=True, exist_ok=True)
+
+        if _download_video_direct(url, video_dir, cookies_file):
             ok += 1
-            safe_title = re.sub(r'[<>:"/\\|?*]', '_', title).strip() if title else f"video_{idx:02d}"
-            # Префикс индекса гарантирует уникальность даже при одинаковых заголовках.
-            author_path = session_dir / f"{idx:03d}_{safe_title}_author.png"
+            author_path = video_dir / f"{safe_title}_author.png"
             try:
                 _make_author_png(channel, author_path)
-                print(f"  ✅ Скачано | плашка: {author_path.name}")
+                print(f"  ✅ Скачано → {video_dir.name}/ | плашка: {author_path.name}")
             except Exception as e:
-                print(f"  ✅ Скачано | ❌ плашка не создана: {e}")
+                print(f"  ✅ Скачано → {video_dir.name}/ | ❌ плашка не создана: {e}")
         else:
             fail += 1
             print(f"  ❌ Ошибка скачивания")
+            # Пустую папку убираем, чтобы не плодить мусор после неудачи.
+            try:
+                next(video_dir.iterdir())
+            except StopIteration:
+                video_dir.rmdir()
+            except OSError:
+                pass
 
         if idx < len(urls) and pause_seconds > 0:
             print(f"  ⏳ Пауза перед следующим видео: {pause_seconds:.1f} сек")
@@ -2369,7 +2388,7 @@ def run_direct_video_download():
 
     print(f"\n{'='*50}")
     print(f"Скачано: {ok}, ошибок: {fail}")
-    print(f"📁 {session_dir}")
+    print(f"📁 {video_direct_root}")
 
 
 def main_menu():

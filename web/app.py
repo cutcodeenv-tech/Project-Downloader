@@ -15,6 +15,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import uuid
@@ -211,22 +212,22 @@ def _ensure_mask_preview_video(base_dir: Path) -> Path:
 
 # ── Script tasks (mirrors SCRIPT_TASKS in main.py) ────────────────────────────
 SCRIPT_TASKS = [
-    {"id": "smart_cropping",      "title": "Кроп 16:9",                               "script": "2.1_smart_cropping.py",      "needs_project": True,  "needs_image_mode": True},
-    {"id": "pullvids_download",   "title": "Скачать YouTube видео (yt-dlp)",          "script": "3.4_pullvids_download.py",   "needs_project": True},
-    {"id": "pulltube_rename",     "title": "Переименовать YouTube видео",              "script": "4_pulltube_rename.py",       "needs_project": True,  "project_arg": True},
-    {"id": "motionarray_rename",  "title": "Переименовать MotionArray видео",          "script": "4.1_motionarray_rename.py",  "needs_project": True,  "project_arg": True},
-    {"id": "photo_placeholders",  "title": "Создать video placeholders из фото",       "script": "5_photo_placeholders.py",    "needs_project": True},
-    {"id": "screenshots",         "title": "Скриншоты other links",                    "script": "7_screenshot_other_links.py","needs_project": True,  "project_arg": True},
+    {"id": "smart_cropping",      "title": "Кроп 16:9",                               "script": "2.1_smart_cropping.py",      "needs_project": True,  "needs_image_mode": True, "output_dir": "images_cropped"},
+    {"id": "pullvids_download",   "title": "Скачать YouTube видео (yt-dlp)",          "script": "3.4_pullvids_download.py",   "needs_project": True,  "output_dir": "video"},
+    {"id": "pulltube_rename",     "title": "Переименовать YouTube видео",              "script": "4_pulltube_rename.py",       "needs_project": True,  "project_arg": True, "output_dir": "video"},
+    {"id": "motionarray_rename",  "title": "Переименовать MotionArray видео",          "script": "4.1_motionarray_rename.py",  "needs_project": True,  "project_arg": True, "output_dir": "video_motionarray"},
+    {"id": "photo_placeholders",  "title": "Создать video placeholders из фото",       "script": "5_photo_placeholders.py",    "needs_project": True,  "output_dir": "placeholders_photo"},
+    {"id": "screenshots",         "title": "Скриншоты other links",                    "script": "7_screenshot_other_links.py","needs_project": True,  "project_arg": True, "output_dir": "articles"},
     {"id": "sort_errors",         "title": "Разобрать ошибки скачивания",              "script": "sort_errors.py",             "needs_project": False},
 ]
 
 CORE_STAGES = [
-    {"id": "stage_structure",   "title": "Создать структуру папок",         "run_mode": "stage_structure",   "needs_project": True},
-    {"id": "stage_parse_links", "title": "Парсинг Google таблицы",          "run_mode": "stage_parse_links", "needs_project": True,  "needs_sheets": True},
-    {"id": "stage_xml",         "title": "XML плейсхолдеры",                "run_mode": "stage_xml",         "needs_project": True},
-    {"id": "stage_enrich",      "title": "Обогащение YouTube-каналов",      "run_mode": "stage_enrich",      "needs_project": True},
-    {"id": "stage_author",      "title": "Создать PNG-плашки источников",   "run_mode": "stage_author",      "needs_project": True},
-    {"id": "stage_images",      "title": "Скачать изображения",             "run_mode": "stage_images",      "needs_project": True},
+    {"id": "stage_structure",   "title": "Создать структуру папок",         "run_mode": "stage_structure",   "needs_project": True,  "output_dir": ""},
+    {"id": "stage_parse_links", "title": "Парсинг Google таблицы",          "run_mode": "stage_parse_links", "needs_project": True,  "needs_sheets": True, "output_dir": "database"},
+    {"id": "stage_xml",         "title": "XML плейсхолдеры",                "run_mode": "stage_xml",         "needs_project": True,  "output_dir": "placeholders_xml"},
+    {"id": "stage_enrich",      "title": "Обогащение YouTube-каналов",      "run_mode": "stage_enrich",      "needs_project": True,  "output_dir": "database"},
+    {"id": "stage_author",      "title": "Создать PNG-плашки источников",   "run_mode": "stage_author",      "needs_project": True,  "output_dir": "author"},
+    {"id": "stage_images",      "title": "Скачать изображения",             "run_mode": "stage_images",      "needs_project": True,  "output_dir": "images"},
 ]
 
 FLOW_STEP_CATALOG = [
@@ -713,6 +714,15 @@ def api_import_project():
     return jsonify({"project": marker, "projects": _list_projects()})
 
 
+def _reveal_in_file_manager(path: Path) -> None:
+    if sys.platform == "darwin":
+        subprocess.run(["open", str(path)], check=False)
+    elif sys.platform.startswith("linux"):
+        subprocess.run(["xdg-open", str(path)], check=False)
+    elif sys.platform == "win32":
+        os.startfile(str(path))  # type: ignore[attr-defined]
+
+
 @app.route("/api/projects/open_folder", methods=["POST"])
 def api_open_project_folder():
     data = request.get_json() or {}
@@ -722,13 +732,32 @@ def api_open_project_folder():
     project_dir = _project_dir(project_name)
     if not project_dir.exists():
         return jsonify({"error": f"Папка проекта не найдена: {project_dir}"}), 404
-    if sys.platform == "darwin":
-        subprocess.run(["open", str(project_dir)], check=False)
-    elif sys.platform.startswith("linux"):
-        subprocess.run(["xdg-open", str(project_dir)], check=False)
-    elif sys.platform == "win32":
-        os.startfile(str(project_dir))  # type: ignore[attr-defined]
+    _reveal_in_file_manager(project_dir)
     return jsonify({"status": "ok"})
+
+
+@app.route("/api/open_output_folder", methods=["POST"])
+def api_open_output_folder():
+    """Открыть в Finder папку результата конкретного скрипта/стадии."""
+    data = request.get_json() or {}
+    project_name = (data.get("project_name") or "").strip()
+    subdir = (data.get("subdir") or "").strip()
+    if not project_name:
+        return jsonify({"error": "Укажите проект"}), 400
+    project_dir = _project_dir(project_name)
+    if not project_dir.exists():
+        return jsonify({"error": f"Папка проекта не найдена: {project_dir}"}), 404
+    target = project_dir
+    if subdir:
+        # Защита от выхода за пределы папки проекта.
+        candidate = (project_dir / subdir).resolve()
+        if not str(candidate).startswith(str(project_dir.resolve())):
+            return jsonify({"error": "Недопустимый путь"}), 400
+        target = candidate
+    # Папка может ещё не существовать (скрипт не запускали) — создаём, чтобы открыть.
+    target.mkdir(parents=True, exist_ok=True)
+    _reveal_in_file_manager(target)
+    return jsonify({"status": "ok", "path": str(target)})
 
 
 @app.route("/api/projects/state")
@@ -1099,7 +1128,11 @@ def api_placeholders():
     for mov in sorted(ph_dir.glob("*.mov"), key=lambda p: p.stem):
         stem    = mov.stem
         has_src = any((src_dir / f"{stem}{e}").exists() for e in (".jpg", ".jpeg", ".png"))
-        files.append({"name": stem, "has_src": has_src})
+        try:
+            mtime = mov.stat().st_mtime
+        except OSError:
+            mtime = 0
+        files.append({"name": stem, "has_src": has_src, "mtime": mtime})
     return jsonify({"files": files, "project": project, "subdir": subdir})
 
 
@@ -1147,6 +1180,72 @@ def api_placeholder_encode():
     env = _build_env(project_name=project)
     ok, msg = _start_job(cmd, env=env, job_title=f"Рендер фото: {name}", steps=[f"Рендер {name}"])
     return (jsonify({"ok": True, "file": name}) if ok else jsonify({"error": msg})), (200 if ok else 409)
+
+
+_DROPZONE_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+
+@app.route("/api/placeholder_dropzone", methods=["POST"])
+def api_placeholder_dropzone():
+    """Drag&drop картинки в галерею: кроп 16:9 + рендер .mov-плейсхолдера.
+
+    Синхронный запрос (фронт показывает модалку со спиннером): кладёт исходник
+    в images_cropped/<волна>, затем рендерит placeholders_photo/<волна>/<имя>.mov.
+    """
+    project = (request.form.get("project") or "").strip()
+    subdir  = (request.form.get("subdir") or "").strip()
+    upload  = request.files.get("file")
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    if not upload or not upload.filename:
+        return jsonify({"error": "Файл не передан"}), 400
+
+    ext = Path(upload.filename).suffix.lower()
+    if ext not in _DROPZONE_IMAGE_EXTS:
+        return jsonify({"error": f"Неподдерживаемый формат: {ext or '?'}"}), 400
+
+    stem = re.sub(r'[<>:"/\\|?*]+', "_", Path(upload.filename).stem).strip() or "image"
+
+    cropped_dir = _data_dir() / project / "images_cropped"
+    ph_dir      = _data_dir() / project / "placeholders_photo"
+    if subdir:
+        cropped_dir = cropped_dir / subdir
+        ph_dir      = ph_dir / subdir
+    cropped_dir.mkdir(parents=True, exist_ok=True)
+    ph_dir.mkdir(parents=True, exist_ok=True)
+
+    base_dir = Path(_settings["base_dir"])
+    crop_script = base_dir / "scripts" / "2.1_smart_cropping.py"
+    if not crop_script.exists():
+        return jsonify({"error": f"Скрипт кропа не найден: {crop_script.name}"}), 500
+
+    # Кроп требует папку-источник, поэтому сохраняем загрузку во временную папку.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_input = Path(tmp) / f"{stem}{ext}"
+        upload.save(str(tmp_input))
+        crop = subprocess.run(
+            [sys.executable, str(crop_script), "--input", str(tmp), "--output", str(cropped_dir)],
+            capture_output=True, text=True, env=_build_env(project_name=project), cwd=str(base_dir),
+        )
+        if crop.returncode != 0:
+            detail = (crop.stderr or crop.stdout or "").strip()[-400:]
+            return jsonify({"error": "Кроп не удался", "detail": detail}), 500
+
+    cropped_jpg = find_source_image(cropped_dir, stem)
+    if not cropped_jpg:
+        return jsonify({"error": "Кропнутое изображение не найдено после обработки"}), 500
+
+    out_mov = ph_dir / f"{stem}.mov"
+    try:
+        cmd = build_placeholder_render_cmd(cropped_jpg, out_mov, base_dir)
+    except FileNotFoundError as exc:
+        return jsonify({"error": str(exc)}), 500
+    render = subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
+    if render.returncode != 0:
+        detail = (render.stderr or "").strip()[-400:]
+        return jsonify({"error": "Рендер плейсхолдера не удался", "detail": detail}), 500
+
+    return jsonify({"ok": True, "name": stem})
 
 
 @app.route("/api/placeholder_upscale", methods=["POST"])

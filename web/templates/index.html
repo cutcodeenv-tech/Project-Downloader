@@ -121,6 +121,8 @@
   .stage-run{padding:5px 12px;background:var(--accent);border:none;border-radius:5px;color:#fff;font-size:11px;font-weight:500;cursor:pointer;transition:background .15s;white-space:nowrap}
   .stage-run:hover{background:var(--accent-h)}
   .stage-run:disabled{opacity:.35;cursor:not-allowed}
+  .stage-folder{padding:5px 9px;background:var(--panel2);border:1px solid var(--border);border-radius:5px;font-size:13px;line-height:1;cursor:pointer;transition:border-color .15s,background .15s;white-space:nowrap}
+  .stage-folder:hover{border-color:var(--accent);background:var(--panel)}
   .scripts-top{background:var(--panel2);border:1px solid var(--border);border-radius:7px;padding:12px 14px;margin-bottom:16px;display:flex;align-items:flex-end;gap:12px}
   .scripts-top .fg{margin-bottom:0;flex:1}
 
@@ -197,6 +199,15 @@
   .ph-thumb-ph{width:100%;aspect-ratio:16/9;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px}
   .ph-name{padding:5px 8px;font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ph-empty{color:var(--muted);font-size:13px;text-align:center;padding:40px 0;grid-column:1/-1}
+  .ph-drophint{font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 10px;border:1px dashed var(--border);border-radius:6px}
+  .ph-grid.dragover{outline:2px dashed var(--accent);outline-offset:4px;border-radius:8px;background:rgba(99,102,241,.06)}
+  .ph-drop-overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(8,10,15,.72);backdrop-filter:blur(3px);align-items:center;justify-content:center}
+  .ph-drop-overlay.open{display:flex}
+  .ph-drop-box{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:28px 36px;text-align:center;min-width:280px;max-width:80vw}
+  .ph-drop-title{font-size:14px;font-weight:600;margin-top:14px}
+  .ph-drop-status{font-size:12px;color:var(--muted);margin-top:6px;white-space:pre-line;word-break:break-word}
+  .ph-spinner{width:38px;height:38px;margin:0 auto;border:3px solid rgba(255,255,255,.15);border-top-color:var(--accent);border-radius:50%;animation:ph-spin .8s linear infinite}
+  @keyframes ph-spin{to{transform:rotate(360deg)}}
   .ph-editor-overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:500;display:none;align-items:center;justify-content:center}
   .ph-editor-overlay.open{display:flex}
   .ph-editor{background:var(--panel);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:column;width:min(920px,96vw);max-height:92vh;overflow:hidden}
@@ -548,6 +559,9 @@
                 {%- else %}без проекта{% endif %}
               </div>
             </div>
+            {% if 'output_dir' in stage %}
+            <button class="stage-folder" title="Открыть папку результата" onclick="openScriptFolder('{{ stage.output_dir }}')">📂</button>
+            {% endif %}
             {% if stage.get('needs_sheets') %}
             <button class="stage-run" onclick="runStageWithSheets('{{ stage.run_mode }}')">▶</button>
             {% else %}
@@ -567,6 +581,9 @@
               <div class="stitle">{{ task.title }}</div>
               <div class="smeta">{{ task.script }}</div>
             </div>
+            {% if 'output_dir' in task %}
+            <button class="stage-folder" title="Открыть папку результата" onclick="openScriptFolder('{{ task.output_dir }}')">📂</button>
+            {% endif %}
             <button class="stage-run" onclick="runScript('{{ task.id }}', {{ 'true' if task.get('needs_project', True) else 'false' }})">▶</button>
           </div>
           {% endfor %}
@@ -589,6 +606,12 @@
           <input type="text" id="ph-subdir" placeholder="волна (пусто = базовая)" style="padding:7px 10px;font-size:12px" onchange="phLoadList()">
         </div>
         <input type="text" class="ph-search" id="phSearch" placeholder="поиск..." oninput="phFilter()">
+        <select id="phSort" class="ph-scale" onchange="phFilter()" title="Сортировка">
+          <option value="name_asc">Имя ↑</option>
+          <option value="name_desc">Имя ↓</option>
+          <option value="date_desc">Сначала новые</option>
+          <option value="date_asc">Сначала старые</option>
+        </select>
         <div class="ph-bulk">
           <span class="ph-bulk-count" id="phSelectedCount">Выбрано: 0</span>
           <button class="btn2" onclick="phSelectVisible(true)">Выбрать всё</button>
@@ -601,8 +624,20 @@
         </div>
         <button class="btn2" onclick="phLoadList()">↺ Обновить</button>
       </div>
-      <div id="phGrid" class="ph-grid">
+      <div class="ph-drophint">⤓ Перетащите картинки сюда — они автоматически кропнутся 16:9 и попадут в плейсхолдеры</div>
+      <div id="phGrid" class="ph-grid"
+           ondragenter="phDragEnter(event)" ondragover="phDragOver(event)"
+           ondragleave="phDragLeave(event)" ondrop="phDrop(event)">
         <div class="ph-empty">Выберите проект</div>
+      </div>
+    </div>
+
+    <!-- Оверлей обработки drag&drop фото -->
+    <div class="ph-drop-overlay" id="phDropOverlay">
+      <div class="ph-drop-box">
+        <div class="ph-spinner"></div>
+        <div class="ph-drop-title" id="phDropTitle">Обработка изображений…</div>
+        <div class="ph-drop-status" id="phDropStatus"></div>
       </div>
     </div>
 
@@ -1023,6 +1058,13 @@
     const r = await post('/api/run/script',{script_id:scriptId,project_name:pname,image_mode:imageMode});
     if(r.error) return showToast(r.error,'error');
     startStreaming();
+  }
+
+  async function openScriptFolder(subdir) {
+    const pname = selProject || '';
+    if(!pname) return showToast('Выберите проект в боковой панели','error');
+    const r = await post('/api/open_output_folder',{project_name:pname, subdir:subdir||''});
+    if(r.error) return showToast(r.error,'error');
   }
 
   async function installAllDeps() {
@@ -1545,7 +1587,17 @@
     const q       = (document.getElementById('phSearch').value || '').toLowerCase();
     const project = (document.getElementById('ph-project').value || '').trim();
     const subdir  = (document.getElementById('ph-subdir').value  || '').trim();
-    const list    = q ? _phAll.filter(f => f.name.toLowerCase().includes(q)) : _phAll;
+    const filtered = q ? _phAll.filter(f => f.name.toLowerCase().includes(q)) : _phAll.slice();
+    const sort = (document.getElementById('phSort') || {}).value || 'name_asc';
+    const cmpName = (a, b) => a.name.localeCompare(b.name, undefined, {numeric:true, sensitivity:'base'});
+    const cmpDate = (a, b) => (a.mtime || 0) - (b.mtime || 0);
+    filtered.sort(
+      sort === 'name_desc' ? (a,b)=>cmpName(b,a) :
+      sort === 'date_asc'  ? cmpDate :
+      sort === 'date_desc' ? (a,b)=>cmpDate(b,a) :
+      cmpName
+    );
+    const list = filtered;
     _phFiltered = list;
     const grid    = document.getElementById('phGrid');
     phUpdateSelectedCount();
@@ -1695,6 +1747,67 @@
     if (r.error) return showToast(r.error, 'error');
     startStreaming();
     showToast(`Апскейл запущен: ${names.length} шт.`, 'success');
+  }
+
+  // ── Drag&drop картинок в галерею: кроп 16:9 + рендер плейсхолдера ──────────
+  let _phDropBusy = false;
+
+  function phDragEnter(e) {
+    e.preventDefault();
+    document.getElementById('phGrid').classList.add('dragover');
+  }
+  function phDragOver(e) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+    document.getElementById('phGrid').classList.add('dragover');
+  }
+  function phDragLeave(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('dragover');
+  }
+
+  async function phDrop(e) {
+    e.preventDefault();
+    document.getElementById('phGrid').classList.remove('dragover');
+    if (_phDropBusy) return;
+
+    const project = (document.getElementById('ph-project').value || '').trim();
+    const subdir  = (document.getElementById('ph-subdir').value  || '').trim();
+    if (!project) return showToast('Выберите проект', 'error');
+
+    const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
+    if (!files.length) return showToast('Перетащите файлы изображений', 'error');
+
+    _phDropBusy = true;
+    const overlay = document.getElementById('phDropOverlay');
+    const titleEl = document.getElementById('phDropTitle');
+    const statusEl = document.getElementById('phDropStatus');
+    overlay.classList.add('open');
+
+    let ok = 0;
+    const errors = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      titleEl.textContent = `Обработка ${i + 1} из ${files.length}…`;
+      statusEl.textContent = `${file.name}\nкроп 16:9 → рендер плейсхолдера`;
+      const fd = new FormData();
+      fd.append('project', project);
+      fd.append('subdir', subdir);
+      fd.append('file', file);
+      try {
+        const resp = await fetch('/api/placeholder_dropzone', {method: 'POST', body: fd});
+        const data = await resp.json().catch(() => ({}));
+        if (resp.ok && data.ok) ok++;
+        else errors.push(`${file.name}: ${data.error || 'ошибка'}`);
+      } catch (err) {
+        errors.push(`${file.name}: ${err.message}`);
+      }
+    }
+
+    overlay.classList.remove('open');
+    _phDropBusy = false;
+    phLoadList();
+    if (ok) showToast(`Добавлено в галерею: ${ok}`, 'success');
+    if (errors.length) showToast('Ошибки: ' + errors.join('; '), 'error');
   }
 
   // Drag-to-pan in preview
