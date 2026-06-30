@@ -29,6 +29,7 @@ sys.path.insert(0, str(BASE_DIR / "scripts"))
 
 from photo_placeholder_ops import (
     build_placeholder_render_cmd,
+    clamp_duration,
     find_source_image,
     is_realesrgan_installed,
 )
@@ -1161,6 +1162,7 @@ def api_placeholder_encode():
     zoom    = min(3.0, max(0.25, float(d.get("zoom", 1.0))))
     x_off   = int(d.get("x", 0))
     y_off   = int(d.get("y", 0))
+    duration = clamp_duration(d.get("duration", 10))
     if not project or not name:
         return jsonify({"error": "project and name required"}), 400
     src_dir = _data_dir() / project / "images_cropped"
@@ -1174,7 +1176,7 @@ def api_placeholder_encode():
     out       = ph_dir  / f"{name}.mov"
     ph_dir.mkdir(parents=True, exist_ok=True)
     try:
-        cmd = build_placeholder_render_cmd(jpg, out, Path(_settings["base_dir"]), zoom=zoom, x_off=x_off, y_off=y_off)
+        cmd = build_placeholder_render_cmd(jpg, out, Path(_settings["base_dir"]), zoom=zoom, x_off=x_off, y_off=y_off, duration=duration)
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 500
     env = _build_env(project_name=project)
@@ -1194,6 +1196,7 @@ def api_placeholder_dropzone():
     """
     project = (request.form.get("project") or "").strip()
     subdir  = (request.form.get("subdir") or "").strip()
+    duration = clamp_duration(request.form.get("duration", 10))
     upload  = request.files.get("file")
     if not project:
         return jsonify({"error": "Выберите проект"}), 400
@@ -1237,7 +1240,7 @@ def api_placeholder_dropzone():
 
     out_mov = ph_dir / f"{stem}.mov"
     try:
-        cmd = build_placeholder_render_cmd(cropped_jpg, out_mov, base_dir)
+        cmd = build_placeholder_render_cmd(cropped_jpg, out_mov, base_dir, duration=duration)
     except FileNotFoundError as exc:
         return jsonify({"error": str(exc)}), 500
     render = subprocess.run([str(c) for c in cmd], capture_output=True, text=True)

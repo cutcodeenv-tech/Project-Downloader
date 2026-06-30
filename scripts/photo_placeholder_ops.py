@@ -109,6 +109,18 @@ def clamp_transform(zoom: float, x_off: int, y_off: int) -> tuple[float, int, in
     return zoom, x, y
 
 
+def clamp_duration(duration) -> int:
+    """Длительность плейсхолдера в секундах: одно из 5/10/15/20."""
+    try:
+        value = int(round(float(duration)))
+    except (TypeError, ValueError):
+        return 10
+    allowed = (5, 10, 15, 20)
+    if value in allowed:
+        return value
+    return min(allowed, key=lambda option: abs(option - value))
+
+
 def build_placeholder_render_cmd(
     image_path: Path,
     output_path: Path,
@@ -116,6 +128,7 @@ def build_placeholder_render_cmd(
     zoom: float = 1.0,
     x_off: int = 0,
     y_off: int = 0,
+    duration: int = 10,
 ) -> list[str]:
     scratches_path = Path(base_dir) / "assets" / "scratches_add.mp4"
     alpha_mask_path = Path(base_dir) / "assets" / "alpha_mask.mp4"
@@ -126,11 +139,12 @@ def build_placeholder_render_cmd(
         raise FileNotFoundError(f"Файл маски не найден: {alpha_mask_path}")
 
     zoom, x_off, y_off = clamp_transform(zoom, x_off, y_off)
+    duration = clamp_duration(duration)
     width = round(FRAME_W * zoom)
     height = round(FRAME_H * zoom)
 
     flt = (
-        f"color=c=black:s={FRAME_W}x{FRAME_H}:d=10[canvas];"
+        f"color=c=black:s={FRAME_W}x{FRAME_H}:d={duration}[canvas];"
         f"[0:v]scale={width}:{height}:flags=lanczos,setsar=1[scaled];"
         f"[canvas][scaled]overlay="
         f"{(FRAME_W - width) // 2 + x_off}:{(FRAME_H - height) // 2 + y_off}[bg];"
@@ -165,7 +179,7 @@ def build_placeholder_render_cmd(
         "-r",
         "25",
         "-t",
-        "10",
+        str(duration),
         str(output_path),
     ]
 

@@ -199,7 +199,7 @@
   .ph-thumb-ph{width:100%;aspect-ratio:16/9;background:var(--panel2);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:10px}
   .ph-name{padding:5px 8px;font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .ph-empty{color:var(--muted);font-size:13px;text-align:center;padding:40px 0;grid-column:1/-1}
-  .ph-drophint{font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 10px;border:1px dashed var(--border);border-radius:6px}
+  .ph-drophint{font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 10px;border:1px dashed var(--border);border-radius:6px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .ph-grid.dragover{outline:2px dashed var(--accent);outline-offset:4px;border-radius:8px;background:rgba(99,102,241,.06)}
   .ph-drop-overlay{display:none;position:fixed;inset:0;z-index:200;background:rgba(8,10,15,.72);backdrop-filter:blur(3px);align-items:center;justify-content:center}
   .ph-drop-overlay.open{display:flex}
@@ -624,7 +624,17 @@
         </div>
         <button class="btn2" onclick="phLoadList()">↺ Обновить</button>
       </div>
-      <div class="ph-drophint">⤓ Перетащите картинки сюда — они автоматически кропнутся 16:9 и попадут в плейсхолдеры</div>
+      <div class="ph-drophint">
+        <span>⤓ Перетащите картинки сюда — они автоматически кропнутся 16:9 и попадут в плейсхолдеры</span>
+        <label style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;white-space:nowrap">Длительность
+          <select id="phDropDuration" class="ph-scale">
+            <option value="5">5 сек</option>
+            <option value="10" selected>10 сек</option>
+            <option value="15">15 сек</option>
+            <option value="20">20 сек</option>
+          </select>
+        </label>
+      </div>
       <div id="phGrid" class="ph-grid"
            ondragenter="phDragEnter(event)" ondragover="phDragOver(event)"
            ondragleave="phDragLeave(event)" ondrop="phDrop(event)">
@@ -831,6 +841,15 @@
             <div class="ph-arr" onclick="phNudge(0,10)"  title="+10px по Y">▼</div>
             <div class="ph-arr-empty"></div>
           </div>
+        </div>
+        <div class="ph-ctrl-group">
+          <div class="ph-ctrl-label">Длительность</div>
+          <select id="phDuration" class="ph-scale" style="width:100%">
+            <option value="5">5 секунд</option>
+            <option value="10" selected>10 секунд</option>
+            <option value="15">15 секунд</option>
+            <option value="20">20 секунд</option>
+          </select>
         </div>
         <button class="btn2" style="width:100%;font-size:11px" onclick="phResetAll()">Сбросить всё</button>
       </div>
@@ -1721,11 +1740,12 @@
     if (isRunning) { showToast('Уже выполняется задача', 'error'); return; }
     const {project, subdir, name} = _phCur;
     const {zoom, x, y} = _phS;
+    const duration = parseInt(document.getElementById('phDuration')?.value || '10', 10);
     const btn = document.getElementById('phEncodeBtn');
     btn.disabled = true;
     try {
       const r = await post('/api/placeholder_encode',
-        {project, subdir, name, zoom, x: Math.round(x), y: Math.round(y)});
+        {project, subdir, name, zoom, x: Math.round(x), y: Math.round(y), duration});
       if (r.error) { showToast(r.error, 'error'); return; }
       phCloseEditor();
       startStreaming();
@@ -1774,6 +1794,7 @@
     const subdir  = (document.getElementById('ph-subdir').value  || '').trim();
     if (!project) return showToast('Выберите проект', 'error');
 
+    const duration = parseInt(document.getElementById('phDropDuration')?.value || '10', 10);
     const files = [...(e.dataTransfer?.files || [])].filter(f => f.type.startsWith('image/'));
     if (!files.length) return showToast('Перетащите файлы изображений', 'error');
 
@@ -1792,6 +1813,7 @@
       const fd = new FormData();
       fd.append('project', project);
       fd.append('subdir', subdir);
+      fd.append('duration', String(duration));
       fd.append('file', file);
       try {
         const resp = await fetch('/api/placeholder_dropzone', {method: 'POST', body: fd});
