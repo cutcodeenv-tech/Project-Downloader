@@ -75,6 +75,8 @@ _settings: dict = {
     "projects_root": str(BASE_DIR / "data"),
     "cookies_file": str((BASE_DIR / "cookies.txt").resolve()) if (BASE_DIR / "cookies.txt").exists() else "",
     "ph_placeholder_duration": 10,
+    "whisper_model": "base",
+    "whisper_language": "",
 }
 _gazety_watch_lock = threading.Lock()
 _gazety_watch: dict = {"folder": None, "files": {}}
@@ -560,6 +562,8 @@ def _build_env(**kwargs) -> dict:
     if _settings.get("cookies_file"):
         env["COOKIES_FILE"] = str(_settings["cookies_file"])
     env["PYTHONUNBUFFERED"] = "1"
+    env["WHISPER_MODEL"] = str(_settings.get("whisper_model", "base") or "base")
+    env["WHISPER_LANGUAGE"] = str(_settings.get("whisper_language", "") or "")
     bd = Path(_settings["base_dir"])
     env["PYTHONPATH"] = os.pathsep.join(
         filter(None, [str(bd / "scripts"), str(bd / "core"), env.get("PYTHONPATH", "")])
@@ -657,6 +661,12 @@ def api_settings():
                 _settings["cookies_file"] = ""
         if "ph_placeholder_duration" in data:
             _settings["ph_placeholder_duration"] = clamp_duration(data["ph_placeholder_duration"])
+        if "whisper_model" in data:
+            allowed = {"tiny", "base", "small", "medium", "large"}
+            v = str(data["whisper_model"] or "base").strip().lower()
+            _settings["whisper_model"] = v if v in allowed else "base"
+        if "whisper_language" in data:
+            _settings["whisper_language"] = str(data["whisper_language"] or "").strip().lower()
         return jsonify(_settings)
     return jsonify(_settings)
 

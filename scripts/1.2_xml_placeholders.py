@@ -646,6 +646,71 @@ def _find_transcript(voiceover_dir):
     return None
 
 
+def _find_audio(voiceover_dir):
+    """Авто-поиск аудиофайла для транскрипции (wav, mp3, m4a, flac, ogg)."""
+    for ext in ("*.wav", "*.mp3", "*.m4a", "*.flac", "*.ogg"):
+        matches = sorted(glob.glob(os.path.join(voiceover_dir, ext)))
+        if matches:
+            return matches[-1]
+    return None
+
+
+def _install_whisper():
+    """Устанавливает openai-whisper, если не установлен. Возвращает True при успехе."""
+    try:
+        import whisper  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    print("⬇️  openai-whisper не найден — устанавливаю...")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "openai-whisper"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        print(f"❌ Не удалось установить whisper:\n{(r.stderr or r.stdout)[-400:]}")
+        return False
+    print("✅ openai-whisper установлен")
+    return True
+
+
+def _transcribe_with_whisper(audio_path, voiceover_dir, model_name="base", language=""):
+    """Транскрибирует аудио через Whisper и сохраняет .srt рядом в voiceover_dir.
+    Возвращает путь к сохранённому .srt или None при ошибке."""
+    if not _install_whisper():
+        return None
+    try:
+        import whisper
+    except ImportError:
+        print("❌ Не удалось импортировать whisper после установки")
+        return None
+
+    print(f"🎙  Транскрибирую: {os.path.basename(audio_path)}")
+    print(f"    Модель: {model_name}  Язык: {language or 'авто'}")
+    try:
+        model = whisper.load_model(model_name)
+        opts = {"verbose": False}
+        if language:
+            opts["language"] = language
+        result = model.transcribe(audio_path, **opts)
+    except Exception as exc:
+        print(f"❌ Ошибка Whisper: {exc}")
+        return None
+
+    stem = os.path.splitext(os.path.basename(audio_path))[0]
+    srt_path = os.path.join(voiceover_dir, f"{stem}.srt")
+    try:
+        with open(srt_path, "w", encoding="utf-8") as f:
+            for i, seg in enumerate(result["segments"], 1):
+                f.write(f"{i}\n{_srt_tc(seg['start'])} --> {_srt_tc(seg['end'])}\n"
+                        f"{seg['text'].strip()}\n\n")
+        print(f"✅ Транскрипция сохранена: {srt_path}")
+        return srt_path
+    except Exception as exc:
+        print(f"❌ Не удалось сохранить .srt: {exc}")
+        return None
+
+
 def _process(args, mode):
     """Общий финальный этап: выравнивание + рендер."""
     if not shutil.which("ffmpeg") and mode in ("mov", "split") and not args.dump_timeline:
@@ -715,16 +780,32 @@ def main():
             )
         csv_path = csv_candidates[-1]
 
-        # Расшифровка: TRANSCRIPT_FILE или авто-поиск в voiceover/
+        # Расшифровка: TRANSCRIPT_FILE → .srt/.txt в voiceover/ → Whisper по аудио
+        whisper_model = os.getenv("WHISPER_MODEL", "base").strip() or "base"
+        whisper_language = os.getenv("WHISPER_LANGUAGE", "").strip()
+
         transcript_path = os.getenv("TRANSCRIPT_FILE", "").strip()
         if not transcript_path or not os.path.isfile(transcript_path):
             transcript_path = _find_transcript(voiceover_dir)
+
         if not transcript_path or not os.path.isfile(transcript_path):
-            sys.exit(
-                f"❌ Расшифровка озвучки не найдена в {voiceover_dir}\n"
-                "   Положите .srt или .txt с таймкодами в папку voiceover/ проекта\n"
-                "   или задайте переменную среды TRANSCRIPT_FILE=<путь>."
-            )
+            audio_path = _find_audio(voiceover_dir)
+            if audio_path:
+                print(f"📂 Транскрипт не найден — запускаю Whisper для {os.path.basename(audio_path)}")
+                transcript_path = _transcribe_with_whisper(
+                    audio_path, voiceover_dir,
+                    model_name=whisper_model, language=whisper_language,
+                )
+            else:
+                print(
+                    f"⏭️  Пропускаю шаг XML-плейсхолдеров: нет транскрипта и аудио в {voiceover_dir}\n"
+                    "   Положите .srt/.txt или .wav/.mp3 в папку voiceover/ проекта."
+                )
+                return
+
+        if not transcript_path or not os.path.isfile(transcript_path):
+            print("⏭️  Пропускаю шаг XML-плейсхолдеров: транскрипция не удалась.")
+            return
 
         out_dir = os.path.join(project_dir, "placeholders_xml")
 
@@ -732,6 +813,7 @@ def main():
         print(f"  Проект:      {env_project}")
         print(f"  CSV:         {os.path.basename(csv_path)}")
         print(f"  Расшифровка: {os.path.basename(transcript_path)}")
+        print(f"  Whisper:     {whisper_model} | язык: {whisper_language or 'авто'}")
         print(f"  Выход:       {out_dir}")
 
         import types

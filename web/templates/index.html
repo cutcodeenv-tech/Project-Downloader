@@ -792,6 +792,25 @@
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px">Применяется к массовому рендеру (кнопка ▶ у скрипта «Создать video placeholders из фото»). Для одиночных рендеров и drag&amp;drop выбирается отдельно.</div>
       </div>
+      <div class="fg">
+        <label class="lbl">Whisper — транскрипция озвучки</label>
+        <div class="srow" style="flex-wrap:wrap;gap:8px">
+          <select id="settings-whisper-model" title="Модель Whisper">
+            <option value="tiny"   {% if settings.whisper_model == 'tiny'   %}selected{% endif %}>tiny   — быстро, менее точно</option>
+            <option value="base"   {% if settings.whisper_model == 'base'   %}selected{% endif %}>base   — баланс (по умолчанию)</option>
+            <option value="small"  {% if settings.whisper_model == 'small'  %}selected{% endif %}>small  — точнее</option>
+            <option value="medium" {% if settings.whisper_model == 'medium' %}selected{% endif %}>medium — высокая точность</option>
+            <option value="large"  {% if settings.whisper_model == 'large'  %}selected{% endif %}>large  — максимальная точность</option>
+          </select>
+          <input type="text" id="settings-whisper-lang" value="{{ settings.whisper_language }}"
+                 placeholder="язык (ru / en / … — пусто = авто)" style="flex:1;min-width:120px;max-width:220px">
+          <button class="btn2" onclick="saveWhisperSettings()">Сохранить</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">
+          Используется при запуске «XML плейсхолдеры», если в папке <code>voiceover/</code> нет готового .srt/.txt.
+          Whisper устанавливается автоматически при первом запуске.
+        </div>
+      </div>
     </div>
 
     <!-- ЛОГ -->
@@ -1150,6 +1169,14 @@
   async function savePhDuration() {
     const v = parseInt(document.getElementById('settings-ph-duration').value, 10);
     const r = await post('/api/settings', {ph_placeholder_duration: v});
+    if (r.error) return showToast(r.error, 'error');
+    showToast('Сохранено', 'success');
+  }
+
+  async function saveWhisperSettings() {
+    const model = document.getElementById('settings-whisper-model').value;
+    const lang  = document.getElementById('settings-whisper-lang').value.trim();
+    const r = await post('/api/settings', {whisper_model: model, whisper_language: lang});
     if (r.error) return showToast(r.error, 'error');
     showToast('Сохранено', 'success');
   }
