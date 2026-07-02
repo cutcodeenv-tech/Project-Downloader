@@ -468,6 +468,7 @@ _PYTHON_DEPS = {
     "questionary": "questionary",
     "flask": "flask",
     "rumps": "rumps",
+    "openai-whisper": "whisper",
 }
 
 
@@ -871,6 +872,13 @@ def api_install_ffmpeg():
 def api_install_realesrgan():
     ok, msg = _start_job([sys.executable, str(_main_py()), "--run", "install_realesrgan"],
                          job_title="Установка Real-ESRGAN", steps=["Проверка и установка Real-ESRGAN"])
+    return (jsonify({"status": "started"}) if ok else jsonify({"error": msg})), (200 if ok else 409)
+
+
+@app.route("/api/run/install_whisper", methods=["POST"])
+def api_install_whisper():
+    ok, msg = _start_job([sys.executable, str(_main_py()), "--run", "install_whisper"],
+                         job_title="Установка openai-whisper", steps=["Проверка и установка openai-whisper"])
     return (jsonify({"status": "started"}) if ok else jsonify({"error": msg})), (200 if ok else 409)
 
 

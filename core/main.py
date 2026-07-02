@@ -1677,6 +1677,18 @@ def install_realesrgan_dependency():
     print("✓ Real-ESRGAN установлен")
 
 
+def install_whisper_dependency():
+    print("\n=== Проверка openai-whisper ===")
+    try:
+        import whisper  # noqa: F401
+        print("✓ openai-whisper уже установлен")
+        return
+    except ImportError:
+        pass
+    run_command([sys.executable, "-m", "pip", "install", "openai-whisper"])
+    print("✓ openai-whisper установлен")
+
+
 def install_docker_desktop():
     print("\n=== Проверка Docker Desktop / Docker Compose ===")
     docker_ok = shutil.which("docker") is not None
@@ -2368,6 +2380,9 @@ def _run_noninteractive(mode: str):
 
     elif mode == "install_realesrgan":
         install_realesrgan_dependency()
+
+    elif mode == "install_whisper":
+        install_whisper_dependency()
 
     elif mode == "new_project":
         project_name = os.getenv("PROJECT_NAME", "").strip()

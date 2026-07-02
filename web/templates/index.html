@@ -387,6 +387,7 @@
           <button class="ibtn" onclick="runInstall('playwright')">playwright install chromium</button>
           <button class="ibtn" onclick="runInstall('ffmpeg')">Установить ffmpeg</button>
           <button class="ibtn" onclick="runInstall('realesrgan')">Установить Real-ESRGAN</button>
+          <button class="ibtn" onclick="runInstall('whisper')">Установить Whisper</button>
           <button class="ibtn" onclick="refreshDeps()">↻ Обновить статус</button>
           <button class="ibtn" onclick="checkUpdate(true)">⬆️ Проверить обновления</button>
         </div>
@@ -1129,6 +1130,7 @@
       what==='pip' ? '/api/run/install_deps' :
       what==='playwright' ? '/api/run/install_playwright' :
       what==='realesrgan' ? '/api/run/install_realesrgan' :
+      what==='whisper' ? '/api/run/install_whisper' :
       '/api/run/install_ffmpeg';
     const r = await post(ep,{});
     if(r.error) return showToast(r.error,'error');
