@@ -779,6 +779,19 @@
         </div>
         <div style="font-size:11px;color:var(--muted);margin-top:4px">Если файл указан, он используется для всех загрузок видео как основной источник cookies.</div>
       </div>
+      <div class="fg">
+        <label class="lbl">Длительность плейсхолдеров по умолчанию</label>
+        <div class="srow">
+          <select id="settings-ph-duration">
+            <option value="5" {% if settings.ph_placeholder_duration == 5 %}selected{% endif %}>5 секунд</option>
+            <option value="10" {% if settings.ph_placeholder_duration == 10 %}selected{% endif %}>10 секунд</option>
+            <option value="15" {% if settings.ph_placeholder_duration == 15 %}selected{% endif %}>15 секунд</option>
+            <option value="20" {% if settings.ph_placeholder_duration == 20 %}selected{% endif %}>20 секунд</option>
+          </select>
+          <button class="btn2" onclick="savePhDuration()">Сохранить</button>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px">Применяется к массовому рендеру (кнопка ▶ у скрипта «Создать video placeholders из фото»). Для одиночных рендеров и drag&amp;drop выбирается отдельно.</div>
+      </div>
     </div>
 
     <!-- ЛОГ -->
@@ -1132,6 +1145,13 @@
     const projects = await (await fetch('/api/projects')).json();
     updateProjectLists(projects);
     showToast('Сохранено','success');
+  }
+
+  async function savePhDuration() {
+    const v = parseInt(document.getElementById('settings-ph-duration').value, 10);
+    const r = await post('/api/settings', {ph_placeholder_duration: v});
+    if (r.error) return showToast(r.error, 'error');
+    showToast('Сохранено', 'success');
   }
 
   function updateProjectLists(projects) {

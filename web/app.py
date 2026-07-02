@@ -74,6 +74,7 @@ _settings: dict = {
     "base_dir": str(BASE_DIR),
     "projects_root": str(BASE_DIR / "data"),
     "cookies_file": str((BASE_DIR / "cookies.txt").resolve()) if (BASE_DIR / "cookies.txt").exists() else "",
+    "ph_placeholder_duration": 10,
 }
 _gazety_watch_lock = threading.Lock()
 _gazety_watch: dict = {"folder": None, "files": {}}
@@ -654,6 +655,8 @@ def api_settings():
                 _settings["cookies_file"] = str(p)
             else:
                 _settings["cookies_file"] = ""
+        if "ph_placeholder_duration" in data:
+            _settings["ph_placeholder_duration"] = clamp_duration(data["ph_placeholder_duration"])
         return jsonify(_settings)
     return jsonify(_settings)
 
@@ -1106,6 +1109,8 @@ def api_run_script():
         return jsonify({"error": "Укажите проект"}), 400
 
     env = _build_env(project_name=pname, image_processing_mode=image_mode)
+    if task["id"] == "photo_placeholders":
+        env["PLACEHOLDER_DURATION"] = str(clamp_duration(_settings.get("ph_placeholder_duration", 10)))
     ok, msg = _start_job([sys.executable, str(_main_py()), "--run", f"script:{task['script']}"], env=env,
                          job_title=task["title"], steps=[task["title"]])
     return (jsonify({"status": "started"}) if ok else jsonify({"error": msg})), (200 if ok else 409)

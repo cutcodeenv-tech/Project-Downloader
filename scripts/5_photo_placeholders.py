@@ -98,7 +98,7 @@ def create_video_placeholder(image_path, output_path, scratches_path, alpha_mask
             '-pix_fmt', 'argb',  # RGBA с альфа-каналом (straight alpha, как у ProRes 4444)
             '-g', '25',  # keyframe раз в секунду: баланс размера и перемотки
             '-r', '25',  # Частота кадров
-            '-t', '5',  # Длительность 5 секунд
+            '-t', str(int(os.getenv("PLACEHOLDER_DURATION", "10"))),  # Длительность (сек)
             output_path
         ]
 
