@@ -51,6 +51,13 @@ def _col_letter(idx):
     return chr(65 + idx) if idx is not None and 0 <= idx < 26 else str(idx)
 
 
+def remove_links(text):
+    """Убирает http(s)-ссылки из текста (столбец B часто содержит ссылки на storyboard)."""
+    if not text:
+        return text
+    return ' '.join(re.sub(r'https?://\S+', '', text).split())
+
+
 def parse_csv(path, col_a=None, col_b=None):
     """CSV → [(rownum, textA, textB)], rownum 1-based = номер ячейки."""
     with open(path, newline="", encoding="utf-8-sig") as f:
@@ -84,7 +91,7 @@ def parse_csv(path, col_a=None, col_b=None):
             continue
         if i == 0 and ta.lower() in header_kw:
             continue
-        tb = cellval(row, b)
+        tb = remove_links(cellval(row, b))
         if i == 0 and tb.lower() in header_kw:
             tb = ""
         cells.append((i + 1, ta, tb))
@@ -809,11 +816,16 @@ def main():
 
         out_dir = os.path.join(project_dir, "placeholders_xml")
 
+        with_text = bool(_im_bin())
+        if not with_text:
+            print("⚠️  ImageMagick не найден — текст отключён, будет только номер.")
+
         print("=== XML ПЛЕЙСХОЛДЕРЫ (оверлей с номерами ячеек) ===")
         print(f"  Проект:      {env_project}")
         print(f"  CSV:         {os.path.basename(csv_path)}")
         print(f"  Расшифровка: {os.path.basename(transcript_path)}")
         print(f"  Whisper:     {whisper_model} | язык: {whisper_language or 'авто'}")
+        print(f"  Текст:       {'A + B (ссылки из B убраны)' if with_text else 'отключён'}")
         print(f"  Выход:       {out_dir}")
 
         import types
@@ -823,8 +835,8 @@ def main():
             out=os.path.join(out_dir, "overlay.mov"),
             out_dir=out_dir,
             srt=None,
-            with_text=False,
-            _with_text=False,
+            with_text=with_text,
+            _with_text=with_text,
             col_a=None,
             col_b=None,
             width=1920, height=1080,
