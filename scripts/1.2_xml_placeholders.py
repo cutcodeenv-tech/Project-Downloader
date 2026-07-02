@@ -664,7 +664,7 @@ def _install_whisper():
         pass
     print("⬇️  openai-whisper не найден — устанавливаю...")
     r = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "openai-whisper"],
+        [sys.executable, "-m", "pip", "install", "--prefer-binary", "openai-whisper"],
         capture_output=True, text=True,
     )
     if r.returncode != 0:

@@ -1685,7 +1685,7 @@ def install_whisper_dependency():
         return
     except ImportError:
         pass
-    run_command([sys.executable, "-m", "pip", "install", "openai-whisper"])
+    run_command([sys.executable, "-m", "pip", "install", "--prefer-binary", "openai-whisper"])
     print("✓ openai-whisper установлен")
 
 
