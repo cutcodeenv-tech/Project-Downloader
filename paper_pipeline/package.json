@@ -1,0 +1,8 @@
+{
+  "name": "paper-pipeline",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}

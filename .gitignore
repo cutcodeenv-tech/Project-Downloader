@@ -16,3 +16,6 @@ __pycache__/
 /placeholders_screenshots/
 cookies.txt
 **/cookies.txt
+node_modules/
+paper_pipeline/renders/
+paper_pipeline/.rotation

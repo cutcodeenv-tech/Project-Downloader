@@ -19,6 +19,7 @@ import tempfile
 import threading
 import time
 import uuid
+from datetime import datetime
 import webbrowser
 from pathlib import Path
 
@@ -484,6 +485,8 @@ def check_deps() -> dict:
     result["ffmpeg"] = {"ok": shutil.which("ffmpeg") is not None, "type": "system"}
     result["yt-dlp"] = {"ok": shutil.which("yt-dlp") is not None, "type": "system"}
     result["Real-ESRGAN"] = {"ok": is_realesrgan_installed(Path(_settings["base_dir"])), "type": "tool"}
+    result["Node.js"] = {"ok": shutil.which("node") is not None, "type": "system"}
+    result["Google Chrome"] = {"ok": Path("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome").exists(), "type": "system"}
     return result
 
 
@@ -1152,6 +1155,8 @@ def api_placeholders():
     for mov in sorted(ph_dir.glob("*.mov"), key=lambda p: p.stem):
         stem    = mov.stem
         has_src = any((src_dir / f"{stem}{e}").exists() for e in (".jpg", ".jpeg", ".png"))
+        if not has_src:
+            continue
         try:
             mtime = mov.stat().st_mtime
         except OSError:
@@ -1231,6 +1236,7 @@ def api_placeholder_dropzone():
         return jsonify({"error": f"Неподдерживаемый формат: {ext or '?'}"}), 400
 
     stem = re.sub(r'[<>:"/\\|?*]+', "_", Path(upload.filename).stem).strip() or "image"
+    stem = f"{stem}_{datetime.now().strftime('%m%d_%H%M%S')}"
 
     cropped_dir = _data_dir() / project / "images_cropped"
     ph_dir      = _data_dir() / project / "placeholders_photo"
@@ -1314,6 +1320,7 @@ def api_mask_preview():
 
 
 # ── Газеты (newspaper animation) editor ───────────────────────────────────────
+_PAPER_PIPELINE_DIR = Path(_settings["base_dir"]) / "paper_pipeline"
 _GAZETY_ENV_VAR = "GAZETY_DIR"
 _GAZETY_SLOTS = {"img_0": "img_0.jpg", "img_1": "img_1.jpg", "img_2": "img_2.png"}
 _GAZETY_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp", ".heic"}
@@ -1767,6 +1774,56 @@ def api_gazety_render_cancel(render_id):
             process.terminate()
     shutil.rmtree(render_dir, ignore_errors=True)
     return jsonify({"ok": True, "cancelled": True})
+
+
+# ── Газеты: auto-generate from article links / CSV ────────────────────────────
+@app.route("/api/gazety/articles/generate", methods=["POST"])
+def api_gazety_articles_generate():
+    d = request.get_json(silent=True) or {}
+    urls = [u.strip() for u in (d.get("urls") or []) if isinstance(u, str) and u.strip()]
+    project = (d.get("project") or "").strip()
+    if not project:
+        return jsonify({"error": "Выберите проект в боковой панели"}), 400
+    if not urls:
+        return jsonify({"error": "Добавьте хотя бы одну ссылку"}), 400
+
+    out_dir = _project_dir(project) / "placeholders_screenshots"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "node", str(_PAPER_PIPELINE_DIR / "web_generate.mjs"),
+        "--urls-json", json.dumps(urls, ensure_ascii=False),
+        "--out-dir", str(out_dir),
+    ]
+    ok, msg = _start_job(cmd, cwd=_PAPER_PIPELINE_DIR, job_title="Газеты: генерация из ссылок")
+    if not ok:
+        return jsonify({"error": msg}), 409
+    return jsonify({"ok": True})
+
+
+@app.route("/api/gazety/articles/upload_csv", methods=["POST"])
+def api_gazety_articles_upload_csv():
+    project = (request.form.get("project") or "").strip()
+    f = request.files.get("file")
+    if not project:
+        return jsonify({"error": "Выберите проект в боковой панели"}), 400
+    if not f or not f.filename:
+        return jsonify({"error": "Файл не передан"}), 400
+
+    out_dir = _project_dir(project) / "placeholders_screenshots"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = Path(tempfile.mkdtemp(prefix="gazety_csv_"))
+    csv_path = tmp_dir / "links.csv"
+    f.save(str(csv_path))
+
+    cmd = [
+        "node", str(_PAPER_PIPELINE_DIR / "web_generate.mjs"),
+        "--csv", str(csv_path),
+        "--out-dir", str(out_dir),
+    ]
+    ok, msg = _start_job(cmd, cwd=_PAPER_PIPELINE_DIR, job_title="Газеты: генерация из CSV")
+    if not ok:
+        return jsonify({"error": msg}), 409
+    return jsonify({"ok": True})
 
 
 # ── SSE stream ─────────────────────────────────────────────────────────────────
