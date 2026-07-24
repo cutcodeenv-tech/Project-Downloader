@@ -2436,6 +2436,117 @@ def run_direct_video_download():
     print(f"📁 {video_direct_root}")
 
 
+def run_gazety_generation():
+    """Режим 3: сгенерировать газеты (статьи на рваной бумаге, та же механика,
+    что и в стадии 3 — website_animate.py) по вставленным ссылкам — массово,
+    без привязки к строкам таблицы проекта, как в «Скачать видео по ссылкам»."""
+    ensure_core_dependencies()
+    project_name = (os.getenv("PROJECT_NAME") or "").strip() or select_project_name()
+
+    env_urls = os.getenv("GAZETY_URLS", "").strip()
+    urls: List[str] = []
+    if env_urls:
+        for line in env_urls.splitlines():
+            line = line.strip()
+            if line.startswith("http"):
+                urls.append(line)
+    else:
+        print("\nВведите ссылки на статьи (по одной, пустая строка — начать генерацию):")
+        while True:
+            url = ask_text("  URL").strip()
+            if not url:
+                if urls:
+                    break
+                continue
+            # Поддержка вставки нескольких ссылок через пробел/запятую
+            for part in re.split(r'[\s,]+', url):
+                part = part.strip()
+                if part.startswith('http'):
+                    urls.append(part)
+
+    if not urls:
+        print("Ссылки не указаны.")
+        return
+
+    import hashlib
+    import json
+    import website_animate
+    from error_log import log_download_error
+    from progress_ui import render_bar, StatusBoard
+
+    project_dir = Path(DATA_DIR) / project_name
+    gazety_root = project_dir / "gazety_direct"
+    gazety_root.mkdir(parents=True, exist_ok=True)
+
+    print(f"\n📁 Корень: gazety_direct/ (отдельная папка на каждую статью)")
+    print(f"📊 Статей к генерации: {len(urls)}")
+
+    def _slug_for(url: str) -> str:
+        return "gazeta-" + hashlib.sha1(url.encode("utf-8")).hexdigest()[:10]
+
+    def _unique_dir(base_name: str) -> Path:
+        candidate = gazety_root / base_name
+        suffix = 2
+        while candidate.exists():
+            candidate = gazety_root / f"{base_name} ({suffix})"
+            suffix += 1
+        return candidate
+
+    total = len(urls)
+    board = StatusBoard(2)
+    ok = fail = 0
+
+    for idx, url in enumerate(urls, 1):
+        overall = (idx - 1) / total
+        board.render([
+            f"[{idx}/{total}] {url[:70]}",
+            f"Всего:  [{render_bar(overall)}] {overall * 100:5.1f}%  (готово: {ok}, ошибок: {fail})",
+        ])
+
+        slug = _slug_for(url)
+        try:
+            success, reason = website_animate.extract_article(url, slug)
+            if not success:
+                raise RuntimeError(f"извлечение текста: {reason}")
+
+            headline = slug
+            content_path = website_animate._PAPER_DIR / "renders" / slug / "source" / "content.json"
+            try:
+                content = json.loads(content_path.read_text(encoding="utf-8"))
+                headline = content.get("headline") or slug
+            except (OSError, ValueError):
+                pass
+
+            success, reason = website_animate.compose_article(slug)
+            if not success:
+                raise RuntimeError(f"компоновка: {reason}")
+
+            safe_title = re.sub(r'[<>:"/\\|?*]', '_', headline).strip()[:120] or slug
+            out_dir = _unique_dir(safe_title)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            output_path = out_dir / f"{safe_title}.mov"
+
+            success, reason = website_animate.render_article(slug, output_path)
+            if not success:
+                raise RuntimeError(f"рендер: {reason}")
+
+            ok += 1
+            board.log(f"  ✅ {headline} → {out_dir.name}/")
+        except Exception as exc:
+            fail += 1
+            board.log(f"  ❌ {url[:60]}: {exc}")
+            log_download_error(project_name, "gazety_direct", url[:60], url, reason=str(exc))
+
+    board.render([
+        "готово",
+        f"Всего:  [{render_bar(1.0)}] 100.0%  (готово: {ok}, ошибок: {fail})",
+    ])
+    board.close()
+
+    print(f"\nСгенерировано: {ok}, ошибок: {fail}")
+    print(f"📁 {gazety_root}")
+
+
 def main_menu():
     print("=== OSNOVATELI.DOC FRAMEWORK ===")
 
@@ -2448,6 +2559,7 @@ def main_menu():
                     ("0. Новый проект", "new_project"),
                     ("1. Продолжить работу над проектом", "continue_project"),
                     ("2. Скачать видео по ссылкам", "direct_video"),
+                    ("3. Сгенерировать газеты по ссылкам", "gazety_direct"),
                     ("Скрипты по очереди", "scripts"),
                     ("Выход", "exit"),
                 ],
@@ -2460,6 +2572,8 @@ def main_menu():
                 run_continue_project()
             elif choice == "direct_video":
                 run_direct_video_download()
+            elif choice == "gazety_direct":
+                run_gazety_generation()
             elif choice == "scripts":
                 run_selected_task_menu()
             elif choice == "exit":
