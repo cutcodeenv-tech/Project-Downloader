@@ -37,7 +37,7 @@ from photo_placeholder_ops import (
 from path_utils import list_projects as scan_projects, ensure_project_marker, is_project_dir, read_project_marker, write_project_marker
 
 try:
-    from flask import Flask, jsonify, render_template, request, Response, stream_with_context, send_file, abort
+    from flask import Flask, jsonify, render_template, request, Response, stream_with_context, send_file, send_from_directory, abort
 except ImportError:
     print("Flask не установлен. Установите: pip install flask")
     sys.exit(1)
@@ -221,6 +221,7 @@ SCRIPT_TASKS = [
     {"id": "pullvids_download",   "title": "Скачать YouTube видео (yt-dlp)",          "script": "3.4_pullvids_download.py",   "needs_project": True,  "output_dir": "video"},
     {"id": "pulltube_rename",     "title": "Переименовать YouTube видео",              "script": "4_pulltube_rename.py",       "needs_project": True,  "project_arg": True, "output_dir": "video"},
     {"id": "motionarray_rename",  "title": "Переименовать MotionArray видео",          "script": "4.1_motionarray_rename.py",  "needs_project": True,  "project_arg": True, "output_dir": "video_motionarray"},
+    {"id": "photo_filmstrip",     "title": "Собрать плёнку с фото (B1-B5, B6-B10, ...)","script": "photo_filmstrip.py",         "needs_project": True,  "output_dir": "filmstrips"},
     {"id": "photo_placeholders",  "title": "Создать video placeholders из фото",       "script": "5_photo_placeholders.py",    "needs_project": True,  "output_dir": "placeholders_photo"},
     {"id": "screenshots",         "title": "Скриншоты other links",                    "script": "7_screenshot_other_links.py","needs_project": True,  "project_arg": True, "output_dir": "articles"},
     {"id": "sort_errors",         "title": "Разобрать ошибки скачивания",              "script": "sort_errors.py",             "needs_project": False},
@@ -246,6 +247,7 @@ FLOW_STEP_CATALOG = [
     {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео"},
     {"id": "motionarray_rename", "kind": "script", "title": "Переименовать MotionArray видео"},
     {"id": "smart_cropping", "kind": "script", "title": "Кроп 16:9"},
+    {"id": "photo_filmstrip", "kind": "script", "title": "Собрать плёнку с фото (B1-B5, B6-B10, ...)"},
     {"id": "photo_placeholders", "kind": "script", "title": "Создать video placeholders из фото"},
     {"id": "screenshots", "kind": "script", "title": "Скриншоты other links"},
 ]
@@ -1824,6 +1826,374 @@ def api_gazety_articles_upload_csv():
     if not ok:
         return jsonify({"error": msg}), 409
     return jsonify({"ok": True})
+
+
+# ── Газеты · ноды (визуальный пайплайн: очередь ссылок → превью → правки → рендер) ──
+_GZN_PIPELINE_SCRIPT = Path(_settings["base_dir"]) / "scripts" / "gzn_pipeline.py"
+_GZN_FONT_FILES = {
+    "SFProText-Heavy.ttf", "SFProText-Bold.ttf", "SFProText-Semibold.ttf", "SFProText-Light.ttf",
+}
+
+
+def _gzn_state_path(project: str) -> Path:
+    return _project_dir(project) / "gazety_nodes" / "state.json"
+
+
+def _gzn_images_dir(project: str) -> Path:
+    return _project_dir(project) / "gazety_nodes" / "images"
+
+
+# Сериализует read-modify-write state.json: ноды "Шаблон"/"Камера" (один→много статей)
+# запускают несколько параллельных POST-ов, а dev-сервер Flask потоковый — без
+# блокировки конкурентные записи затирали/повреждали файл.
+_GZN_STATE_LOCK = threading.RLock()
+
+
+def _gzn_load_state(project: str) -> dict:
+    p = _gzn_state_path(project)
+    if not p.exists():
+        return {"queue": [], "articles": [], "images": []}
+    try:
+        state = json.loads(p.read_text("utf-8"))
+    except (OSError, ValueError):
+        return {"queue": [], "articles": [], "images": []}
+    state.setdefault("images", [])
+    return state
+
+
+def _gzn_save_state(project: str, state: dict) -> None:
+    p = _gzn_state_path(project)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), "utf-8")
+    os.replace(tmp, p)  # атомарная подмена — исключаем частично записанный/битый файл
+
+
+def _gzn_urls_from_text(text: str) -> list[str]:
+    found = re.findall(r"https?://[^\s\"',]+", text or "")
+    cleaned = [re.sub(r"[.,;)\]]+$", "", u) for u in found]
+    seen, out = set(), []
+    for u in cleaned:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+@app.route("/api/gzn/state")
+def api_gzn_state():
+    project = (request.args.get("project") or "").strip()
+    if not project:
+        return jsonify({"error": "project required"}), 400
+    return jsonify(_gzn_load_state(project))
+
+
+@app.route("/api/gzn/queue/links", methods=["POST"])
+def api_gzn_queue_links():
+    d = request.get_json(silent=True) or {}
+    project = (d.get("project") or "").strip()
+    raw = d.get("text") or ""
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    urls = _gzn_urls_from_text(raw) if isinstance(raw, str) else [str(u).strip() for u in raw if str(u).strip()]
+    if not urls:
+        return jsonify({"error": "Ссылки не найдены"}), 400
+    state = _gzn_load_state(project)
+    queue = state.setdefault("queue", [])
+    known = {item["url"] for item in queue}
+    added = 0
+    for u in urls:
+        if u not in known:
+            queue.append({"url": u, "status": "queued", "error": None})
+            known.add(u)
+            added += 1
+    _gzn_save_state(project, state)
+    return jsonify({"ok": True, "added": added, "state": state})
+
+
+@app.route("/api/gzn/queue/csv", methods=["POST"])
+def api_gzn_queue_csv():
+    project = (request.form.get("project") or "").strip()
+    f = request.files.get("file")
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    if not f or not f.filename:
+        return jsonify({"error": "Файл не передан"}), 400
+    text = f.read().decode("utf-8", errors="ignore")
+    urls = _gzn_urls_from_text(text)
+    if not urls:
+        return jsonify({"error": "Ссылки в CSV не найдены"}), 400
+    state = _gzn_load_state(project)
+    queue = state.setdefault("queue", [])
+    known = {item["url"] for item in queue}
+    added = 0
+    for u in urls:
+        if u not in known:
+            queue.append({"url": u, "status": "queued", "error": None})
+            known.add(u)
+            added += 1
+    _gzn_save_state(project, state)
+    return jsonify({"ok": True, "added": added, "state": state})
+
+
+@app.route("/api/gzn/preview", methods=["POST"])
+def api_gzn_preview():
+    d = request.get_json(silent=True) or {}
+    project = (d.get("project") or "").strip()
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    if not _GZN_PIPELINE_SCRIPT.exists():
+        return jsonify({"error": f"Скрипт не найден: {_GZN_PIPELINE_SCRIPT.name}"}), 500
+    cmd = [sys.executable, str(_GZN_PIPELINE_SCRIPT), "--mode", "extract", "--project", project]
+    ok, msg = _start_job(cmd, env=_build_env(project_name=project), cwd=str(Path(_settings["base_dir"])),
+                          job_title="Газеты · ноды: создание предпросмотра")
+    return (jsonify({"ok": True}) if ok else jsonify({"error": msg})), (200 if ok else 409)
+
+
+@app.route("/api/gzn/article/<article_id>", methods=["POST"])
+def api_gzn_update_article(article_id):
+    d = request.get_json(silent=True) or {}
+    project = (d.get("project") or "").strip()
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    with _GZN_STATE_LOCK:
+        state = _gzn_load_state(project)
+        article = next((a for a in state.get("articles", []) if a.get("id") == article_id), None)
+        if not article:
+            return jsonify({"error": "Статья не найдена"}), 404
+        for field in ("name", "headline", "deck", "source", "kicker"):
+            if field in d:
+                article[field] = str(d[field])
+        if "template" in d and str(d["template"]) in ("2", "3", "4", "5"):
+            article["template"] = str(d["template"])
+        if "paragraphs" in d and isinstance(d["paragraphs"], list):
+            article["paragraphs"] = [str(p) for p in d["paragraphs"]]
+        if "headlineStyle" in d and isinstance(d["headlineStyle"], dict):
+            hs = article.setdefault("headlineStyle", {"font": "SFProText-Heavy", "size": 1.0, "color": "#FC3026"})
+            s = d["headlineStyle"]
+            if "font" in s: hs["font"] = str(s["font"])
+            if "size" in s: hs["size"] = float(s["size"])
+            if "color" in s: hs["color"] = str(s["color"])
+        if "textStyle" in d and isinstance(d["textStyle"], dict):
+            ts = article.setdefault("textStyle", {"font": "SFProText-Light", "size": 1.0, "color": "#221e18"})
+            s = d["textStyle"]
+            if "font" in s: ts["font"] = str(s["font"])
+            if "size" in s: ts["size"] = float(s["size"])
+            if "color" in s: ts["color"] = str(s["color"])
+        if "image" in d and isinstance(d["image"], dict) and isinstance(article.get("image"), dict):
+            img = article["image"]
+            s = d["image"]
+            if "scale" in s: img["scale"] = max(0.35, min(0.65, float(s["scale"])))
+            if "offsetX" in s: img["offsetX"] = float(s["offsetX"])
+            if "offsetY" in s: img["offsetY"] = float(s["offsetY"])
+            if "anchorIndex" in s: img["anchorIndex"] = int(s["anchorIndex"])
+            if "side" in s: img["side"] = "right" if s["side"] == "right" else "left"
+            if "enabled" in s: img["enabled"] = bool(s["enabled"])
+        if "settings" in d and isinstance(d["settings"], dict):
+            settings = article.setdefault("settings", {"scale": 1.0, "x": 0, "y": 0, "animate": True})
+            s = d["settings"]
+            if "scale" in s: settings["scale"] = float(s["scale"])
+            if "x" in s: settings["x"] = float(s["x"])
+            if "y" in s: settings["y"] = float(s["y"])
+            if "animate" in s: settings["animate"] = bool(s["animate"])
+        _gzn_save_state(project, state)
+        return jsonify({"ok": True, "article": article})
+
+
+@app.route("/api/gzn/precompose/<article_id>", methods=["POST"])
+def api_gzn_precompose(article_id):
+    """Быстрая пересборка "бумаги" (animation.json) одной статьи — вызывается при
+    смене шаблона нодой «Шаблон», чтобы в превью менялась и подложка, а не только текст.
+    Синхронно и вне очереди job-ов: без hyperframes/ffmpeg это секунды."""
+    d = request.get_json(silent=True) or {}
+    project = (d.get("project") or "").strip()
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    if not _GZN_PIPELINE_SCRIPT.exists():
+        return jsonify({"error": f"Скрипт не найден: {_GZN_PIPELINE_SCRIPT.name}"}), 500
+    cmd = [sys.executable, str(_GZN_PIPELINE_SCRIPT), "--mode", "precompose",
+           "--project", project, "--id", article_id]
+    try:
+        proc = subprocess.run(cmd, env=_build_env(project_name=project),
+                              cwd=str(Path(_settings["base_dir"])),
+                              capture_output=True, text=True, timeout=180)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        return jsonify({"error": f"не удалось пересобрать подложку: {exc}"}), 504
+    if proc.returncode != 0:
+        return jsonify({"error": (proc.stderr or proc.stdout or "ошибка пересборки")[-400:]}), 500
+    return jsonify({"ok": True})
+
+
+@app.route("/api/gzn/article/<article_id>", methods=["DELETE"])
+def api_gzn_delete_article(article_id):
+    project = (request.args.get("project") or "").strip()
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    state = _gzn_load_state(project)
+    articles = state.get("articles", [])
+    article = next((a for a in articles if a.get("id") == article_id), None)
+    if not article:
+        return jsonify({"error": "Статья не найдена"}), 404
+    state["articles"] = [a for a in articles if a.get("id") != article_id]
+    _gzn_save_state(project, state)
+    render_dir = Path(_settings["base_dir"]) / "paper_pipeline" / "renders" / article_id
+    if render_dir.exists():
+        shutil.rmtree(render_dir, ignore_errors=True)
+    return jsonify({"ok": True, "state": state})
+
+
+_GZN_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
+
+
+@app.route("/api/gzn/image/upload", methods=["POST"])
+def api_gzn_image_upload():
+    project = (request.form.get("project") or "").strip()
+    upload = request.files.get("file")
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    if not upload or not upload.filename:
+        return jsonify({"error": "Файл не передан"}), 400
+    ext = Path(upload.filename).suffix.lower()
+    if ext not in _GZN_IMAGE_EXTS:
+        return jsonify({"error": f"Неподдерживаемый формат: {ext or '?'}"}), 400
+
+    image_id = f"gzn-img-{uuid.uuid4().hex[:10]}"
+    images_dir = _gzn_images_dir(project)
+    images_dir.mkdir(parents=True, exist_ok=True)
+    dest = images_dir / f"{image_id}{ext}"
+    upload.save(str(dest))
+
+    w = h = 0
+    try:
+        from PIL import Image
+        with Image.open(dest) as im:
+            w, h = im.size
+    except Exception:
+        pass
+
+    state = _gzn_load_state(project)
+    record = {"id": image_id, "filename": upload.filename, "ext": ext, "w": w, "h": h}
+    state.setdefault("images", []).append(record)
+    _gzn_save_state(project, state)
+    return jsonify({"ok": True, "image": record, "state": state})
+
+
+@app.route("/api/gzn/image/attach", methods=["POST"])
+def api_gzn_image_attach():
+    d = request.get_json(silent=True) or {}
+    project = (d.get("project") or "").strip()
+    article_id = (d.get("articleId") or "").strip()
+    image_id = (d.get("imageId") or "").strip()
+    if not project or not article_id or not image_id:
+        return jsonify({"error": "project, articleId и imageId обязательны"}), 400
+    state = _gzn_load_state(project)
+    article = next((a for a in state.get("articles", []) if a.get("id") == article_id), None)
+    if not article:
+        return jsonify({"error": "Статья не найдена"}), 404
+    if not any(i.get("id") == image_id for i in state.get("images", [])):
+        return jsonify({"error": "Картинка не найдена"}), 404
+    article["image"] = {
+        "imageId": image_id, "scale": 0.45, "offsetX": 0, "offsetY": 0,
+        "anchorIndex": 0, "side": "left", "enabled": True,  # подключил вручную — сразу показываем
+    }
+    _gzn_save_state(project, state)
+    return jsonify({"ok": True, "article": article})
+
+
+@app.route("/api/gzn/image/detach", methods=["POST"])
+def api_gzn_image_detach():
+    d = request.get_json(silent=True) or {}
+    project = (d.get("project") or "").strip()
+    article_id = (d.get("articleId") or "").strip()
+    if not project or not article_id:
+        return jsonify({"error": "project и articleId обязательны"}), 400
+    state = _gzn_load_state(project)
+    article = next((a for a in state.get("articles", []) if a.get("id") == article_id), None)
+    if not article:
+        return jsonify({"error": "Статья не найдена"}), 404
+    article["image"] = None
+    _gzn_save_state(project, state)
+    return jsonify({"ok": True, "article": article})
+
+
+_GZN_IMAGE_ID_RE = re.compile(r"^gzn-img-[a-f0-9]+$")
+
+
+@app.route("/api/gzn/image/<image_id>")
+def api_gzn_image(image_id):
+    project = (request.args.get("project") or "").strip()
+    if not project or not _GZN_IMAGE_ID_RE.match(image_id):
+        abort(404)
+    state = _gzn_load_state(project)
+    img = next((i for i in state.get("images", []) if i.get("id") == image_id), None)
+    if not img:
+        abort(404)
+    return send_from_directory(str(_gzn_images_dir(project)), f"{image_id}{img.get('ext', '')}")
+
+
+@app.route("/api/gzn/render/<article_id>", methods=["POST"])
+def api_gzn_render(article_id):
+    d = request.get_json(silent=True) or {}
+    project = (d.get("project") or "").strip()
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    if not _GZN_PIPELINE_SCRIPT.exists():
+        return jsonify({"error": f"Скрипт не найден: {_GZN_PIPELINE_SCRIPT.name}"}), 500
+    cmd = [sys.executable, str(_GZN_PIPELINE_SCRIPT), "--mode", "render", "--project", project, "--id", article_id]
+    ok, msg = _start_job(cmd, env=_build_env(project_name=project), cwd=str(Path(_settings["base_dir"])),
+                          job_title="Газеты · ноды: рендер статьи")
+    return (jsonify({"ok": True}) if ok else jsonify({"error": msg})), (200 if ok else 409)
+
+
+@app.route("/api/gzn/render_all", methods=["POST"])
+def api_gzn_render_all():
+    d = request.get_json(silent=True) or {}
+    project = (d.get("project") or "").strip()
+    if not project:
+        return jsonify({"error": "Выберите проект"}), 400
+    if not _GZN_PIPELINE_SCRIPT.exists():
+        return jsonify({"error": f"Скрипт не найден: {_GZN_PIPELINE_SCRIPT.name}"}), 500
+    cmd = [sys.executable, str(_GZN_PIPELINE_SCRIPT), "--mode", "render_all", "--project", project]
+    ok, msg = _start_job(cmd, env=_build_env(project_name=project), cwd=str(Path(_settings["base_dir"])),
+                          job_title="Газеты · ноды: рендер всех статей")
+    return (jsonify({"ok": True}) if ok else jsonify({"error": msg})), (200 if ok else 409)
+
+
+@app.route("/api/gzn/geom/<template>")
+def api_gzn_geom(template):
+    if template not in {"2", "3", "4", "5"}:
+        abort(404)
+    p = _PAPER_PIPELINE_DIR / "footages" / f"paper-geom-{template}.json"
+    if not p.exists():
+        abort(404)
+    return jsonify(json.loads(p.read_text("utf-8")))
+
+
+@app.route("/api/gzn/font/<name>")
+def api_gzn_font(name):
+    if name not in _GZN_FONT_FILES:
+        abort(404)
+    return send_from_directory(str(_PAPER_PIPELINE_DIR / "Fonts"), name)
+
+
+_GZN_SLUG_RE = re.compile(r"^[a-zA-Zа-яёА-ЯЁ0-9_-]+$")
+
+
+@app.route("/api/gzn/animation/<article_id>")
+def api_gzn_animation(article_id):
+    if not _GZN_SLUG_RE.match(article_id):
+        abort(404)
+    p = _PAPER_PIPELINE_DIR / "renders" / article_id / "animation.json"
+    if not p.exists():
+        abort(404)
+    return jsonify(json.loads(p.read_text("utf-8")))
+
+
+@app.route("/api/gzn/render_asset/<article_id>/<path:subpath>")
+def api_gzn_render_asset(article_id, subpath):
+    if not _GZN_SLUG_RE.match(article_id):
+        abort(404)
+    return send_from_directory(str(_PAPER_PIPELINE_DIR / "renders" / article_id), subpath)
 
 
 # ── SSE stream ─────────────────────────────────────────────────────────────────

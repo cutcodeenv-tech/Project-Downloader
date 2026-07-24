@@ -288,6 +288,170 @@
     .gz-workspace{grid-template-columns:1fr}
     .gz-settings{position:static}
   }
+
+  /* ── Газеты · ноды (визуальный пайплайн) ─────────────────────────────────── */
+  @font-face{font-family:'GZNSFPro';src:url('/api/gzn/font/SFProText-Heavy.ttf');font-weight:800}
+  @font-face{font-family:'GZNSFPro';src:url('/api/gzn/font/SFProText-Bold.ttf');font-weight:700}
+  @font-face{font-family:'GZNSFPro';src:url('/api/gzn/font/SFProText-Semibold.ttf');font-weight:600}
+  @font-face{font-family:'GZNSFPro';src:url('/api/gzn/font/SFProText-Light.ttf');font-weight:300}
+  .gzn-overlay{font-family:'GZNSFPro',sans-serif}
+  .gzn-toolbar{position:relative;display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:14px}
+  .gzn-toolbar select{padding:7px 10px;font-size:12px}
+  .gzn-toolbar input[type=text]{flex:1;min-width:160px;padding:7px 10px;background:var(--panel);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;outline:none}
+  .gzn-toolbar-gear{margin-left:auto;cursor:pointer;font-size:14px}
+  .gzn-settings-pop{position:absolute;right:0;top:100%;margin-top:6px;z-index:60;width:260px;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:12px;display:none;box-shadow:0 10px 30px rgba(0,0,0,.4)}
+  .gzn-settings-pop.open{display:block}
+  .gzn-settings-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:9px}
+  .gzn-viewport{position:relative;overflow:hidden;border:1px solid var(--border);border-radius:9px;
+    background:radial-gradient(var(--border) 1px, transparent 1px) 0 0/24px 24px, var(--bg);
+    height:70vh;min-height:520px;cursor:grab;touch-action:none}
+  .gzn-viewport.panning{cursor:grabbing}
+  .gzn-world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+  .gzn-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}
+  .gzn-edges path{fill:none;stroke:var(--accent);stroke-width:2;opacity:.55;transition:opacity .2s,stroke .15s}
+  .gzn-edges path.gzn-edge-dim{opacity:.1}
+  .gzn-edges path.gzn-edge-hover{stroke:#e5484d;stroke-width:3;opacity:1}
+  .gzn-edges path.gzn-edge-hit{stroke:transparent;stroke-width:18;pointer-events:stroke;cursor:pointer}
+  .gzn-edges path.gzn-edge-t-data{stroke:#8b93a7}
+  .gzn-edges path.gzn-edge-t-image{stroke:#4aa3ff}
+  .gzn-edges path.gzn-edge-t-settings{stroke:#f0a531}
+  .gzn-edges path.gzn-edge-t-template{stroke:#a371f7}
+  .gzn-edges path.gzn-edge-t-camera{stroke:#26c2b8}
+  .gzn-zoom-controls{position:absolute;left:10px;bottom:10px;display:flex;gap:4px;z-index:40}
+  .gzn-zoom-controls button{width:28px;height:28px;border-radius:6px;border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;font-size:14px;line-height:1}
+  .gzn-zoom-controls button:hover{border-color:var(--accent);color:var(--accent-h)}
+  .gzn-node-host,.gzn-group{position:absolute;left:0;top:0;width:260px}
+  .gzn-node-host,.gzn-group{cursor:grab}
+  .gzn-node-host.gzn-dragging,.gzn-group.gzn-dragging{cursor:grabbing;z-index:50;box-shadow:0 8px 24px rgba(0,0,0,.4);border-radius:9px}
+  .gzn-node-host.gzn-anim-move,.gzn-group.gzn-anim-move{transition:transform var(--gzn-anim-dur,.35s) cubic-bezier(.22,1,.36,1)}
+  .gzn-port{position:absolute;top:50%;width:9px;height:9px;margin-top:-4.5px;border-radius:50%;background:var(--panel2);border:2px solid var(--accent);pointer-events:none}
+  .gzn-port-in{left:-5px}
+  .gzn-port-out{right:-5px}
+  @media (prefers-reduced-motion: reduce){.gzn-node-host.gzn-anim-move,.gzn-group.gzn-anim-move{transition:none}}
+  .gzn-node{background:var(--panel);border:1px solid var(--border);border-radius:9px;overflow:hidden;position:relative}
+  .gzn-node-confirm{position:absolute;inset:0;z-index:6;background:rgba(10,10,14,.94);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:12px;text-align:center}
+  .gzn-node-confirm-msg{font-size:11px;color:var(--text)}
+  .gzn-node-confirm-actions{display:flex;gap:8px}
+  .gzn-node-confirm-actions button{padding:5px 12px;font-size:11px;border-radius:6px;border:1px solid var(--border);background:var(--log-bg);color:var(--text);cursor:pointer}
+  .gzn-node-confirm-actions button.gzn-confirm-yes{border-color:#e5484d;color:#e5484d}
+  .gzn-node-confirm-actions button.gzn-confirm-yes:hover{background:rgba(229,72,77,.15)}
+  .gzn-node-head{display:flex;align-items:center;gap:7px;padding:9px 11px;cursor:pointer;font-size:12px;font-weight:600;user-select:none}
+  .gzn-node-head:hover{background:rgba(255,255,255,.03)}
+  .gzn-node-del{margin-left:auto;width:18px;height:18px;line-height:16px;text-align:center;border-radius:50%;border:1px solid transparent;color:var(--muted);font-size:13px;cursor:pointer;flex:0 0 auto}
+  .gzn-node-del:hover{background:rgba(255,60,60,.15);border-color:#e5484d;color:#e5484d}
+  .gzn-chevron{display:inline-block;transition:transform .15s;color:var(--muted);font-size:10px}
+  .gzn-node.collapsed .gzn-chevron{transform:rotate(-90deg)}
+  .gzn-node.collapsed .gzn-node-body{display:none}
+  .gzn-node-preview .gzn-node-head{cursor:grab}
+  .gzn-node-preview .gzn-chevron{visibility:hidden}
+  .gzn-node-body{padding:0 11px 11px}
+  .gzn-node-preview.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .gzn-name-input{width:100%;font-size:12px;font-weight:600;padding:5px 7px;background:transparent;border:1px solid transparent;border-radius:5px;color:var(--text)}
+  .gzn-name-input:hover,.gzn-name-input:focus{background:var(--log-bg);border-color:var(--border);outline:none}
+  .gzn-textarea{width:100%;resize:vertical;min-height:60px;background:var(--log-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:inherit;font-size:12px;padding:8px;box-sizing:border-box}
+  .gzn-row{display:flex;align-items:center;gap:7px;margin-top:8px;flex-wrap:wrap}
+  .gzn-hint{font-size:10px;color:var(--muted);margin-bottom:8px}
+  .gzn-dropzone{margin-top:8px;padding:10px;border:1px dashed var(--border);border-radius:6px;font-size:10px;color:var(--muted);text-align:center;cursor:pointer}
+  .gzn-dropzone.dragover{border-color:var(--accent);background:rgba(99,102,241,.08)}
+  .gzn-queue-count{font-size:10px;color:var(--muted);margin-top:7px}
+  .gzn-progress{height:5px;border-radius:3px;background:var(--log-bg);overflow:hidden;margin-top:8px}
+  .gzn-progress-fill{height:100%;background:var(--accent);width:0%;transition:width .2s}
+  .gzn-stage{aspect-ratio:16/9;position:relative;overflow:hidden;background:#000;border-radius:6px}
+  .gzn-cam{position:absolute;inset:0;will-change:transform}
+  .gzn-lottie{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .gzn-overlay{position:absolute;top:0;left:0;width:1920px;height:1080px;transform-origin:top left;pointer-events:none}
+  .gzn-ov-kicker{font-weight:700;text-transform:uppercase;display:flex;gap:12px;align-items:center;margin-bottom:20px}
+  .gzn-ov-rule{flex:0 0 50px;height:6px}
+  .gzn-ov-head-wrap{position:relative;display:inline-block;padding:1px 12px 8px 0}
+  .gzn-ov-hl{position:absolute;left:-9px;top:2px;right:-4px;bottom:7px;z-index:0}
+  .gzn-ov-headline{position:relative;z-index:1;margin:0;font-weight:800;line-height:1.04;letter-spacing:-1.5px;color:#17140f}
+  .gzn-ov-under{width:100%;margin:18px 0 26px}
+  .gzn-ov-deck{font-weight:300;line-height:1.3;color:#3b342a;margin:0 0 28px}
+  .gzn-ov-body-p{font-weight:300;line-height:1.5;color:#221e18;margin:0 0 22px}
+  .gzn-ov-inline-image{overflow:hidden;border-radius:4px}
+  .gzn-ov-inline-image img{display:block;width:100%;height:100%;object-fit:cover;aspect-ratio:4/3}
+  .gzn-ov-inline-image-left{float:left;margin:4px 24px 14px 0}
+  .gzn-ov-inline-image-right{float:right;margin:4px 0 14px 24px}
+  .gzn-source-field{margin-bottom:9px}
+  .gzn-source-field label{display:block;font-size:10px;color:var(--muted);margin-bottom:4px}
+  .gzn-source-field input[type=text]{width:100%;padding:6px 8px;background:var(--log-bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px;box-sizing:border-box}
+  .gzn-accent-row{display:flex;align-items:center;gap:8px}
+  .gzn-accent-row input[type=color]{width:32px;height:28px;padding:2px;border:1px solid var(--border);border-radius:5px;background:var(--panel);cursor:pointer}
+  .gzn-setting-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:11px;color:var(--muted)}
+  .gzn-setting-row input[type=range]{flex:1}
+  .gzn-setting-row .gzn-val{width:38px;text-align:right;color:var(--text);font-size:11px}
+  .gzn-hidden{opacity:.15;filter:grayscale(1);pointer-events:none}
+  .gzn-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:500;display:none;align-items:center;justify-content:center}
+  .gzn-modal-overlay.open{display:flex}
+  .gzn-modal-box{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px;width:min(720px,90vw)}
+  .gzn-modal-box textarea{width:100%;min-height:320px;resize:vertical;background:var(--log-bg);border:1px solid var(--border);border-radius:7px;color:var(--text);font-family:inherit;font-size:12px;padding:10px;box-sizing:border-box}
+  .gzn-modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
+  .gzn-preview-modal-box{width:min(1100px,94vw)}
+  .gzn-modal-preview-layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(260px,1fr);gap:16px;margin-top:10px}
+  .gzn-modal-stage{width:100%}
+  .gzn-modal-fields .gzn-textarea{min-height:120px}
+  @media(max-width:900px){.gzn-modal-preview-layout{grid-template-columns:1fr}}
+
+  /* ── Газеты · ноды: разложенный граф (Источник/Заголовок/Текст/Картинка/Рендер) ── */
+  .gzn-layout{display:flex;gap:14px;align-items:flex-start}
+  .gzn-layout .gzn-viewport{flex:1;min-width:0}
+  .gzn-viewport.gzn-image-dragover{outline:2px dashed var(--accent);outline-offset:-2px}
+  .gzn-preview-panel{width:340px;flex:0 0 340px;position:sticky;top:0;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:12px;align-self:flex-start}
+  .gzn-panel-title{font-size:12px;font-weight:600}
+  .gzn-panel-hint{font-size:10px;color:var(--muted);margin:2px 0 8px}
+  .gzn-node-small .gzn-node-body{font-size:11px}
+  .gzn-image-thumb{width:100%;border-radius:6px;display:block;object-fit:cover;aspect-ratio:4/3;background:var(--log-bg)}
+  .gzn-image-slot-empty{padding:16px 8px;border:1px dashed var(--border);border-radius:6px;text-align:center;font-size:10px;color:var(--muted)}
+  .gzn-image-thumb.gzn-image-off{opacity:.35;filter:grayscale(1)}
+  .gzn-node-render.active{border-color:var(--accent)}
+  .gzn-side-toggle{display:flex;gap:6px}
+  .gzn-side-toggle button{flex:1;padding:5px 6px;font-size:10px;border-radius:5px;border:1px solid var(--border);background:var(--log-bg);color:var(--muted);cursor:pointer}
+  .gzn-side-toggle button.active{border-color:var(--accent);color:var(--accent-h)}
+  .gzn-wire-hint{font-size:10px;color:var(--muted);text-align:center;padding:10px 6px}
+
+  /* ── Газеты · ноды v2: тулбар-статус, меню добавления, минимапа, компактная нода Статья ── */
+  .gzn-substatus{display:flex;align-items:center;gap:12px;margin:8px 0 10px;min-height:14px}
+  .gzn-substatus-bar{flex:0 0 200px;max-width:200px;margin-top:0}
+  .gzn-substatus-bar .gzn-progress-fill{transition:width .2s}
+  .gzn-addmenu{position:absolute;z-index:120;display:none;width:220px;background:var(--panel);border:1px solid var(--border);border-radius:9px;padding:8px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+  .gzn-addmenu.open{display:block}
+  .gzn-addmenu input{width:100%;padding:6px 8px;background:var(--log-bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;box-sizing:border-box;margin-bottom:6px}
+  .gzn-addmenu-list{display:flex;flex-direction:column;gap:2px;max-height:260px;overflow:auto}
+  .gzn-addmenu-item{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:6px;font-size:12px;color:var(--text);cursor:pointer}
+  .gzn-addmenu-item:hover{background:var(--log-bg)}
+  .gzn-addmenu-item .gzn-am-ico{width:18px;text-align:center;flex:0 0 auto}
+  .gzn-addmenu-item .gzn-am-desc{display:block;font-size:9px;color:var(--muted)}
+  .gzn-minimap{position:absolute;right:10px;bottom:10px;width:180px;height:120px;border:1px solid var(--border);border-radius:7px;background:rgba(10,10,14,.72);overflow:hidden;z-index:40}
+  .gzn-minimap canvas{display:block;width:100%;height:100%;cursor:pointer}
+
+  /* компактная нода Статья (главная = результат/вьювер) */
+  .gzn-article-node{width:230px}
+  .gzn-article-node .gzn-node-head{gap:6px}
+  .gzn-article-node .gzn-node-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+  .gzn-node-expand{width:18px;height:18px;line-height:16px;text-align:center;border-radius:5px;border:1px solid transparent;color:var(--muted);font-size:12px;cursor:pointer;flex:0 0 auto}
+  .gzn-node-expand:hover{background:var(--log-bg);color:var(--text)}
+  .gzn-node-expand.active{color:var(--accent-h);border-color:var(--accent)}
+  .gzn-status-pill{display:inline-block;margin-top:7px;padding:2px 8px;border-radius:20px;font-size:9px;font-weight:600;background:var(--log-bg);color:var(--muted)}
+  .gzn-status-pill.is-rendered{background:rgba(46,160,67,.18);color:#3fb950}
+  .gzn-status-pill.is-error{background:rgba(229,72,77,.18);color:#e5484d}
+  .gzn-status-pill.is-rendering{background:rgba(99,102,241,.18);color:var(--accent-h)}
+
+  /* категории нод: цветная левая полоса + акцент шапки */
+  .gzn-node--article{border-left:3px solid #3fb950}
+  .gzn-node--field{border-left:3px solid #8b93a7}
+  .gzn-node--media{border-left:3px solid #4aa3ff}
+  .gzn-node--transform{border-left:3px solid #f0a531}
+  .gzn-settings-node{border-left:3px solid #f0a531}
+  .gzn-node--note{border-left:3px solid #e3c84b;background:rgba(227,200,75,.07)}
+  .gzn-set-group{border:1px solid var(--border);border-radius:7px;padding:8px;margin-bottom:8px}
+  .gzn-set-group-t{font-size:10px;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px}
+  .gzn-set-group .gzn-setting-row:last-child{margin-bottom:0}
+  .gzn-tpl-tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px}
+  .gzn-tpl-tile{padding:10px 0;font-size:13px;font-weight:600;border-radius:6px;border:1px solid var(--border);background:var(--log-bg);color:var(--muted);cursor:pointer}
+  .gzn-tpl-tile.active{border-color:var(--accent);color:var(--accent-h);background:rgba(99,102,241,.1)}
+  .gzn-note-host{width:210px}
+  .gzn-note-text{min-height:60px;font-size:12px;color:var(--text);outline:none;white-space:pre-wrap;word-break:break-word}
+  .gzn-note-text:empty::before{content:'Заметка…';color:var(--muted)}
 </style>
 </head>
 <body>
@@ -340,6 +504,7 @@
       <div class="tab"        data-tab="scripts"      onclick="switchTab('scripts')">Скрипты</div>
       <div class="tab"        data-tab="photo"        onclick="switchTab('photo')">Фото</div>
       <div class="tab"        data-tab="gazety"       onclick="switchTab('gazety')">Газеты</div>
+      <div class="tab"        data-tab="gzn"          onclick="switchTab('gzn')">Газеты · ноды</div>
       <div class="tab"        data-tab="log"          onclick="switchTab('log')">Лог</div>
       <div class="tab"        data-tab="settings"     onclick="switchTab('settings')">Настройки</div>
     </div>
@@ -655,6 +820,149 @@
       </div>
     </div>
 
+    <!-- ГАЗЕТЫ · НОДЫ -->
+    <div class="content" id="tab-gzn" style="display:none">
+      <div class="ptitle">Газеты · ноды</div>
+      <div class="pdesc">Визуальный пайплайн: ссылки/CSV → предпросмотр текста → правки заголовка/текста/цвета → рендер.</div>
+
+      <div class="gzn-toolbar">
+        <select id="gzn-project" onchange="gznLoadState()">
+          <option value="">— проект —</option>
+          {% for p in projects %}<option value="{{ p.name }}">{{ p.name }}</option>{% endfor %}
+        </select>
+        <input type="text" id="gznSearch" placeholder="поиск по имени..." oninput="gznApplySearch()">
+        <button class="btn2" onclick="gznLoadState()">↺ Обновить</button>
+        <button class="btn2" onclick="gznOpenLinksModal()" title="Добавить ссылки или CSV">＋ Импорт</button>
+        <button class="run-btn" onclick="gznCreatePreviews()">Создать превью</button>
+        <button class="run-btn" id="gznRenderAllBtn" onclick="gznRenderAll()" disabled>Рендерить всё</button>
+        <button class="btn2" onclick="gznOpenAddMenu(event)" title="Добавить ноду на холст">＋ Нода ▾</button>
+        <span class="gzn-toolbar-gear" onclick="gznToggleSettings()" title="Настройки холста">⚙</span>
+        <div class="gzn-settings-pop" id="gznSettingsPop">
+          <div class="gzn-settings-title">Настройки холста</div>
+          <div class="gzn-setting-row"><span>Плавность анимаций</span>
+            <input type="range" min="0" max="2" step="0.1" id="gznSetAnimSpeed" oninput="gznSetSetting('animSpeed', this.value)">
+            <span class="gzn-val" id="gznSetAnimSpeedVal"></span></div>
+          <div class="gzn-setting-row"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="gznSetAnimateOn" onchange="gznSetSetting('animateOn', this.checked)"> Анимации включены</label></div>
+          <div class="gzn-setting-row"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="gznSetSnap" onchange="gznSetSetting('snapGrid', this.checked)"> Привязка к сетке</label></div>
+          <div class="gzn-setting-row"><span>Шаг сетки</span>
+            <input type="range" min="10" max="60" step="5" id="gznSetGridStep" oninput="gznSetSetting('gridStep', this.value)">
+            <span class="gzn-val" id="gznSetGridStepVal"></span></div>
+          <div class="gzn-row">
+            <button class="btn2" onclick="gznAlignAll()">Выровнять ноды</button>
+            <button class="btn2" onclick="gznResetView()">Сбросить вид</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="gzn-substatus">
+        <span class="gzn-queue-count" id="gznQueueCount"></span>
+        <div class="gzn-progress gzn-substatus-bar"><div class="gzn-progress-fill" id="gznCreateProgress"></div></div>
+        <div class="gzn-progress gzn-substatus-bar"><div class="gzn-progress-fill" id="gznRenderAllProgress"></div></div>
+      </div>
+
+      <!-- меню добавления нод -->
+      <div class="gzn-addmenu" id="gznAddMenu">
+        <input type="text" id="gznAddMenuSearch" placeholder="Поиск ноды…" oninput="gznAddMenuFilter(this.value)">
+        <div class="gzn-addmenu-list" id="gznAddMenuList"></div>
+      </div>
+
+      <div class="gzn-layout">
+      <div class="gzn-viewport" id="gznViewport"
+           ondragenter="gznCanvasImageDragEnter(event)" ondragover="gznCanvasImageDragOver(event)"
+           ondragleave="gznCanvasImageDragLeave(event)" ondrop="gznCanvasImageDrop(event)">
+        <div class="gzn-world" id="gznWorld">
+          <svg class="gzn-edges" id="gznEdges"></svg>
+
+          <div id="gznChain"></div>
+        </div>
+
+        <div class="gzn-zoom-controls">
+          <button type="button" onclick="gznZoomBy(1.2)" title="Приблизить">+</button>
+          <button type="button" onclick="gznZoomBy(0.8333)" title="Отдалить">−</button>
+          <button type="button" onclick="gznResetView()" title="Сбросить вид">⤾</button>
+        </div>
+
+        <div class="gzn-minimap" id="gznMinimap"><canvas id="gznMinimapCanvas" width="180" height="120"></canvas></div>
+      </div>
+
+      <div class="gzn-preview-panel">
+        <div class="gzn-panel-title" id="gznPanelTitle">Превью</div>
+        <div class="gzn-panel-hint" id="gznPanelHint">Кликните по любой ноде статьи, чтобы увидеть результат здесь.</div>
+        <div class="gzn-stage" id="gzn-panel-stage">
+          <div class="gzn-cam" id="gzn-panel-cam">
+            <div class="gzn-lottie" id="gzn-panel-lottie"></div>
+            <div class="gzn-overlay" id="gzn-panel-overlay"></div>
+          </div>
+        </div>
+        <div class="gzn-row">
+          <button class="run-btn" id="gznPanelRenderBtn" onclick="gznRenderOne(_gznSelectedArticleId)" disabled>Рендер</button>
+        </div>
+        <div class="gzn-progress"><div class="gzn-progress-fill" id="gznPanelRenderProgress"></div></div>
+      </div>
+      </div>
+    </div>
+
+    <!-- Модалка импорта ссылок / CSV -->
+    <textarea id="gznLinksText" style="display:none"></textarea>
+    <div class="gzn-modal-overlay" id="gznLinksModalOverlay">
+      <div class="gzn-modal-box">
+        <div class="gz-section-title">Импорт ссылок</div>
+        <textarea id="gznLinksModalText" placeholder="по одной ссылке на строку"></textarea>
+        <div class="gzn-dropzone" id="gznCsvDrop" style="margin-top:10px"
+             ondragenter="gznCsvDragEnter(event)" ondragover="gznCsvDragOver(event)"
+             ondragleave="gznCsvDragLeave(event)" ondrop="gznCsvDrop(event)"
+             onclick="document.getElementById('gznCsvFile').click()">
+          Drag&amp;drop для CSV<br><span class="gzn-hint">(или клик — выбрать файл)</span>
+        </div>
+        <input type="file" id="gznCsvFile" accept=".csv,text/csv" style="display:none" onchange="gznCsvFileInput(this)">
+        <div class="gzn-modal-actions">
+          <button class="btn2" onclick="gznCloseLinksModal()">Закрыть</button>
+          <button class="run-btn" onclick="gznAddLinksFromModal()">Добавить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модалка большого превью статьи (Газеты · ноды) -->
+    <div class="gzn-modal-overlay" id="gznPreviewModalOverlay">
+      <div class="gzn-modal-box gzn-preview-modal-box">
+        <div class="gz-section-title" id="gznModalStatus">превью</div>
+        <div class="gzn-modal-preview-layout">
+          <div class="gzn-stage gzn-modal-stage" id="gzn-modal-stage">
+            <div class="gzn-cam" id="gzn-modal-cam">
+              <div class="gzn-lottie" id="gzn-modal-lottie"></div>
+              <div class="gzn-overlay" id="gzn-modal-overlay"></div>
+            </div>
+          </div>
+          <div class="gzn-modal-fields">
+            <div class="gzn-hint">Заголовок, текст и картинка редактируются в своих нодах на холсте — здесь только финальная композиция и параметры камеры/анимации.</div>
+            <div class="gzn-setting-row">Scale
+              <input type="range" id="gznModalScale" min="0.5" max="2" step="0.01"
+                     oninput="gznModalSetting('scale', this.value); document.getElementById('gznModalScaleVal').textContent=(+this.value).toFixed(2)">
+              <span class="gzn-val" id="gznModalScaleVal">1.00</span>
+            </div>
+            <div class="gzn-setting-row">Pos X
+              <input type="range" id="gznModalX" min="-400" max="400" step="1"
+                     oninput="gznModalSetting('x', this.value); document.getElementById('gznModalXVal').textContent=this.value">
+              <span class="gzn-val" id="gznModalXVal">0</span>
+            </div>
+            <div class="gzn-setting-row">Pos Y
+              <input type="range" id="gznModalY" min="-400" max="400" step="1"
+                     oninput="gznModalSetting('y', this.value); document.getElementById('gznModalYVal').textContent=this.value">
+              <span class="gzn-val" id="gznModalYVal">0</span>
+            </div>
+            <label class="gzn-setting-row"><input type="checkbox" id="gznModalAnimate" onchange="gznModalSetting('animate', this.checked)"> Animate?</label>
+            <div class="gzn-row" style="margin-top:12px">
+              <button class="run-btn" onclick="gznRenderOne(_gznModalArticleId)">Рендер</button>
+            </div>
+            <div class="gzn-progress"><div class="gzn-progress-fill" id="gznModalRenderProgress"></div></div>
+          </div>
+        </div>
+        <div class="gzn-modal-actions">
+          <button class="btn2" onclick="gznClosePreviewModal()">Закрыть</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ГАЗЕТЫ -->
     <div class="content" id="tab-gazety" style="display:none">
       <div class="gz-shell">
@@ -964,6 +1272,7 @@
     if (name === 'gazety' && !_gzAnim && !_gzLottieLoading) {
       requestAnimationFrame(() => gzLoadPreview());
     }
+    if (name === 'gzn') gznLoadState();
     if (name === 'log') requestAnimationFrame(() => preserveLogPosition());
   }
 
@@ -2763,6 +3072,1864 @@
 
   // Init editor display on load
   _gzApplyEditor();
+
+  // ── Газеты · ноды ────────────────────────────────────────────────────────
+  // Разложенный граф на статью: Источник → Заголовок/Текст/Картинка → Рендер,
+  // плюс отдельные ноды-картинки и универсальные ноды "Настройки" (см. план).
+  let _gznState = { queue: [], articles: [], images: [] };
+  let _gznModalArticleId = null;
+  let _gznSelectedArticleId = null;
+  const _gznGeomCache = {};
+  const _gznAnimVersion = {};   // бамп при пересборке подложки — обходит кэш animation.json
+  const _gznPrecomposeTried = {}; // чтобы не долбить пересборку в цикле, если она не помогла
+  const _gznSaveTimers = {};
+  const _gznAnims = {};
+  let _gznPollTimer = null;
+  // Ноды-картинки на холсте (не привязанные к конкретной статье, пока не подключены ребром)
+  // и универсальные ноды-настройки — обе живут только во фронтенд-слое (localStorage),
+  // реальные значения полей — на сервере (article.image / headlineStyle / textStyle).
+  let _gznImageNodes = [];      // [{ id }] — id совпадает с image record id (=imageId)
+  let _gznSettingsNodes = [];   // [{ id, target: {articleId}|null }]
+  let _gznTemplateNodes = [];   // [{ id, template }] — нода выбора бумаги
+  let _gznCameraNodes = [];     // [{ id }] — нода камеры/анимации
+  let _gznNoteNodes = [];       // [{ id, text }] — свободный стикер
+  const _gznExpanded = new Set(); // id статей, у которых раскрыты поля-ноды
+
+  // ── Газеты · ноды: canvas (pan/zoom/drag/edges) ────────────────────────────
+  let _gznCanvas = { panX: 40, panY: 40, zoom: 1 };
+  let _gznNodePositions = {};   // { nodeId: {x,y} } — мировые координаты
+  const _gznNodeSizeCache = {}; // { nodeId: height } — кэш высоты для рёбер, не форсим reflow в hot-path
+  let _gznSettings = { animSpeed: 1, animateOn: true, snapGrid: false, gridStep: 20 };
+  let _gznDrag = null;
+  let _gznJustDragged = false;  // подавляет click (toggle/select/open) сразу после реального перетаскивания
+  document.addEventListener('click', e => {
+    if (_gznJustDragged) { _gznJustDragged = false; e.stopPropagation(); e.preventDefault(); }
+  }, true);
+  let _gznWire = null;          // { fromNodeId, kind: 'image'|'settings' } — перетаскивание ребра
+  let _gznViewportInited = false;
+  let _gznResizeObserver = null;
+  let _gznCanvasRafPending = false;
+  let _gznLayoutSaveTimer = null;
+
+  function gznProject() {
+    return (document.getElementById('gzn-project').value || '').trim();
+  }
+
+  function _gznEsc(s) {
+    return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function gznToggleNode(id) {
+    document.getElementById(id)?.classList.toggle('collapsed');
+  }
+
+  async function gznLoadState() {
+    gznInitViewport();
+    const project = gznProject();
+    gznLoadLayout();
+    if (!project) {
+      _gznState = { queue: [], articles: [], images: [] };
+      document.getElementById('gznQueueCount').textContent = '';
+      document.getElementById('gznRenderAllBtn').disabled = true;
+      gznRenderChain();
+      return;
+    }
+    const r = await fetch('/api/gzn/state?project=' + encodeURIComponent(project)).then(x => x.json()).catch(() => ({}));
+    _gznState = r.error ? { queue: [], articles: [], images: [] } : r;
+    gznRenderChain();
+    gznRenderImageNodes();
+    gznRenderSettingsNodes();
+    gznRenderTemplateNodes();
+    gznRenderCameraNodes();
+    gznRenderNoteNodes();
+  }
+
+  // ── Газеты · ноды v2: компактная нода Статья + раскрытие полей по требованию ─
+  // Главная нода `article-<id>` = источник+результат (миниатюра+статус, вьювер справа).
+  // Поля Заголовок/Текст/Картинка — сателлиты, живут только при раскрытии (_gznExpanded).
+  function gznClusterNodeIds(id) {
+    return { main: 'article-' + id, headline: 'headline-' + id, text: 'text-' + id, image: 'image-' + id };
+  }
+
+  function gznClusterPositions(base) {
+    return {
+      main: { x: base.x, y: base.y },
+      headline: { x: base.x + 300, y: base.y - 30 },
+      text: { x: base.x + 300, y: base.y + 160 },
+      image: { x: base.x + 300, y: base.y + 360 },
+    };
+  }
+
+  function gznStatusInfo(article) {
+    const map = { previewed: ['превью готово', ''], rendered: ['отрендерено', 'is-rendered'],
+                  rendering: ['рендерится', 'is-rendering'], error: ['ошибка', 'is-error'] };
+    const e = map[article.status] || [article.status || '', ''];
+    return { text: e[0] + (article.error ? ': ' + article.error : ''), cls: e[1] };
+  }
+
+  function gznSetStatusPill(el, article) {
+    const info = gznStatusInfo(article);
+    el.textContent = info.text;
+    el.className = 'gzn-status-pill gzn-render-status ' + info.cls;
+  }
+
+  function gznRenderChain() {
+    const chain = document.getElementById('gznChain');
+    const queue = _gznState.queue || [];
+    const articles = _gznState.articles || [];
+    const queued = queue.filter(q => q.status === 'queued').length;
+    const done = queue.filter(q => q.status === 'done').length;
+    const errored = queue.filter(q => q.status === 'error').length;
+    document.getElementById('gznQueueCount').textContent = gznProject()
+      ? `В очереди: ${queued}, обработано: ${done}` + (errored ? `, ошибок: ${errored}` : '')
+      : '';
+    document.getElementById('gznRenderAllBtn').disabled = !articles.length;
+    gznApplyCanvasTransform();
+
+    if (!articles.length) {
+      chain.innerHTML = gznProject()
+        ? '<div class="gzn-hint">Пока нет статей — нажмите «＋ Импорт», добавьте ссылки и «Создать превью».</div>'
+        : '<div class="gzn-hint">Выберите проект</div>';
+      gznRecalcEdges();
+      gznDrawMinimap();
+      return;
+    }
+
+    const seen = new Set();
+    articles.forEach((a, idx) => {
+      const ids = gznClusterNodeIds(a.id);
+      seen.add(a.id);
+      if (!document.querySelector(`[data-node-id="${ids.main}"]`)) {
+        if (!_gznNodePositions[ids.main]) _gznNodePositions[ids.main] = gznClusterPositions(gznAutoPositionFor(idx)).main;
+        const wrap = document.createElement('div');
+        wrap.innerHTML = gznArticleMainHtml(a);
+        Array.from(wrap.children).forEach(child => chain.appendChild(child));
+        gznPositionNode(ids.main);
+        gznMakeDraggable(ids.main);
+        gznObserveNode(ids.main);
+        gznMountStage(a.id);
+      } else {
+        gznUpdateClusterDom(a);
+      }
+      gznSyncSatellites(a, idx);
+    });
+
+    Array.from(chain.querySelectorAll('[data-article-id]')).forEach(el => {
+      const id = el.dataset.articleId;
+      if (seen.has(id)) return;
+      const nodeId = el.dataset.nodeId;
+      if (nodeId && nodeId.startsWith('article-')) {
+        const lottieId = 'gzn-lottie-' + id;
+        if (_gznAnims[lottieId]) { try { _gznAnims[lottieId].destroy(); } catch (e) {} delete _gznAnims[lottieId]; }
+        _gznExpanded.delete(id);
+      }
+      if (_gznResizeObserver) _gznResizeObserver.unobserve(el);
+      delete _gznNodePositions[nodeId];
+      delete _gznNodeSizeCache[nodeId];
+      el.remove();
+    });
+
+    gznRecalcEdges();
+    gznApplySearch();
+    gznScheduleSaveLayout();
+    gznDrawMinimap();
+  }
+
+  // Создаёт/убирает сателлиты (Заголовок/Текст/Картинка) по состоянию _gznExpanded.
+  function gznSyncSatellites(a, idx) {
+    const ids = gznClusterNodeIds(a.id);
+    const expanded = _gznExpanded.has(a.id);
+    const present = !!document.querySelector(`[data-node-id="${ids.headline}"]`);
+    if (expanded && !present) {
+      const base = _gznNodePositions[ids.main] || gznAutoPositionFor(idx);
+      const pos = gznClusterPositions(base);
+      ['headline', 'text', 'image'].forEach(k => { if (!_gznNodePositions[ids[k]]) _gznNodePositions[ids[k]] = pos[k]; });
+      const chain = document.getElementById('gznChain');
+      const wrap = document.createElement('div');
+      wrap.innerHTML = gznArticleFieldsHtml(a);
+      Array.from(wrap.children).forEach(child => chain.appendChild(child));
+      ['headline', 'text', 'image'].forEach(k => { gznPositionNode(ids[k]); gznMakeDraggable(ids[k]); gznObserveNode(ids[k]); });
+    } else if (!expanded && present) {
+      ['headline', 'text', 'image'].forEach(k => gznRemoveSatelliteEl(ids[k]));
+    } else if (expanded && present) {
+      gznUpdateSatelliteDom(a);
+    }
+  }
+
+  function gznRemoveSatelliteEl(nodeId) {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (el) { if (_gznResizeObserver) _gznResizeObserver.unobserve(el); el.remove(); }
+    delete _gznNodeSizeCache[nodeId]; // позицию храним — при повторном раскрытии вернём на место
+  }
+
+  function gznToggleExpand(id) {
+    if (_gznExpanded.has(id)) _gznExpanded.delete(id); else _gznExpanded.add(id);
+    const btn = document.querySelector(`[data-node-id="article-${id}"] .gzn-node-expand`);
+    if (btn) btn.classList.toggle('active', _gznExpanded.has(id));
+    const a = gznArticleFor(id);
+    if (a) gznSyncSatellites(a, (_gznState.articles || []).indexOf(a));
+    gznRecalcEdges();
+    gznScheduleSaveLayout();
+  }
+
+  function gznImageSlotHtml(article) {
+    const img = article.image;
+    if (!img) return '<div class="gzn-image-slot-empty">Перетащите картинку на холст и соедините её с нодой статьи</div>';
+    const project = encodeURIComponent(gznProject());
+    const on = !!img.enabled;
+    return `<img class="gzn-image-thumb${on ? '' : ' gzn-image-off'}" src="/api/gzn/image/${img.imageId}?project=${project}">
+      <label class="gzn-setting-row" style="cursor:pointer;margin-top:8px">
+        <input type="checkbox" ${on ? 'checked' : ''} onclick="event.stopPropagation()" onchange="gznSetImageEnabled('${article.id}',this.checked)">
+        Показывать в статье
+      </label>
+      <div class="gzn-row"><button class="btn2" onclick="event.stopPropagation();gznDetachImage('${article.id}')">Убрать</button></div>`;
+  }
+
+  function gznSetImageEnabled(articleId, on) {
+    const a = gznArticleFor(articleId);
+    if (!a || !a.image) return;
+    a.image.enabled = !!on;
+    gznUpdateClusterDom(a);
+    gznRefreshOverlayOnly(articleId);
+    gznRenderSettingsNodes();
+    gznScheduleSave(articleId);
+  }
+
+  // Главная компактная нода Статья: миниатюра рендера + статус + вьювер по клику.
+  function gznArticleMainHtml(article) {
+    const id = article.id;
+    const ids = gznClusterNodeIds(id);
+    const nameLc = _gznEsc((article.headline || article.name || '').toLowerCase());
+    const title = _gznEsc(article.headline || article.name || 'Без заголовка');
+    const info = gznStatusInfo(article);
+    const expanded = _gznExpanded.has(id);
+    return `
+    <div class="gzn-node-host gzn-article-node" data-node-id="${ids.main}" data-article-id="${id}" data-gzn-name="${nameLc}">
+      <div class="gzn-node gzn-node--article" onclick="gznSelectArticle('${id}')" ondblclick="gznToggleExpand('${id}')">
+        <div class="gzn-node-head">
+          <span class="gzn-node-title" title="${title}">${title}</span>
+          <span class="gzn-node-expand ${expanded ? 'active' : ''}" title="Раскрыть поля для правки" onclick="event.stopPropagation();gznToggleExpand('${id}')">⤢</span>
+          <span class="gzn-node-del" title="Удалить статью" onclick="event.stopPropagation();gznDeleteArticle('${id}','${ids.main}')">✕</span>
+        </div>
+        <div class="gzn-node-body">
+          <div class="gzn-stage" id="gzn-stage-${id}">
+            <div class="gzn-cam" id="gzn-cam-${id}">
+              <div class="gzn-lottie" id="gzn-lottie-${id}"></div>
+              <div class="gzn-overlay" id="gzn-overlay-${id}"></div>
+            </div>
+          </div>
+          <span class="gzn-status-pill gzn-render-status ${info.cls}">${info.text}</span>
+        </div>
+      </div>
+      <span class="gzn-port gzn-port-in"></span>
+    </div>`;
+  }
+
+  // Сателлиты-редакторы полей (появляются при раскрытии статьи).
+  function gznArticleFieldsHtml(article) {
+    const id = article.id;
+    const ids = gznClusterNodeIds(id);
+    const nameLc = _gznEsc((article.headline || article.name || '').toLowerCase());
+    return `
+    <div class="gzn-node-host" data-node-id="${ids.headline}" data-article-id="${id}" data-gzn-name="${nameLc}" data-gzn-sat="1">
+      <div class="gzn-node gzn-node-small gzn-node--field">
+        <div class="gzn-node-head"><span>Заголовок</span></div>
+        <div class="gzn-node-body">
+          <input type="text" class="gzn-name-input gzn-headline-input" value="${_gznEsc(article.headline || '')}"
+                 placeholder="Заголовок" oninput="gznUpdateField('${id}','headline',this.value)">
+          <textarea class="gzn-textarea gzn-deck-input" rows="2" placeholder="Подзаголовок / рубрика (deck)"
+                    oninput="gznUpdateField('${id}','deck',this.value)">${_gznEsc(article.deck || '')}</textarea>
+          <input type="text" class="gzn-name-input gzn-source-input" style="margin-top:6px" value="${_gznEsc(article.source || '')}"
+                 placeholder="Источник" oninput="gznUpdateField('${id}','source',this.value)">
+        </div>
+      </div>
+      <span class="gzn-port gzn-port-in"></span>
+    </div>
+
+    <div class="gzn-node-host" data-node-id="${ids.text}" data-article-id="${id}" data-gzn-name="${nameLc}" data-gzn-sat="1">
+      <div class="gzn-node gzn-node-small gzn-node--field">
+        <div class="gzn-node-head"><span>Текст</span></div>
+        <div class="gzn-node-body">
+          <textarea class="gzn-textarea gzn-paragraphs-input" rows="5" placeholder="Основной текст статьи"
+                    oninput="gznUpdateParagraphs('${id}',this.value)">${_gznEsc((article.paragraphs || []).join('\n\n'))}</textarea>
+        </div>
+      </div>
+      <span class="gzn-port gzn-port-in"></span>
+    </div>
+
+    <div class="gzn-node-host" data-node-id="${ids.image}" data-article-id="${id}" data-gzn-name="${nameLc}" data-gzn-sat="1">
+      <div class="gzn-node gzn-node-small gzn-node--media">
+        <div class="gzn-node-head"><span>Картинка</span></div>
+        <div class="gzn-node-body gzn-image-slot">${gznImageSlotHtml(article)}</div>
+      </div>
+      <span class="gzn-port gzn-port-in"></span>
+    </div>`;
+  }
+
+  function gznUpdateClusterDom(article) {
+    const id = article.id;
+    const ids = gznClusterNodeIds(id);
+    const nameLc = (article.headline || article.name || '').toLowerCase();
+    const title = article.headline || article.name || 'Без заголовка';
+    const mainHost = document.querySelector(`[data-node-id="${ids.main}"]`);
+    if (mainHost) {
+      mainHost.dataset.gznName = nameLc;
+      const t = mainHost.querySelector('.gzn-node-title');
+      if (t) { t.textContent = title; t.title = title; }
+      const pill = mainHost.querySelector('.gzn-render-status');
+      if (pill) gznSetStatusPill(pill, article);
+    }
+    gznUpdateSatelliteDom(article);
+  }
+
+  function gznUpdateSatelliteDom(article) {
+    const id = article.id;
+    const ids = gznClusterNodeIds(id);
+    const nameLc = (article.headline || article.name || '').toLowerCase();
+    const headlineHost = document.querySelector(`[data-node-id="${ids.headline}"]`);
+    if (headlineHost) {
+      headlineHost.dataset.gznName = nameLc;
+      const hi = headlineHost.querySelector('.gzn-headline-input');
+      if (hi && document.activeElement !== hi) hi.value = article.headline || '';
+      const di = headlineHost.querySelector('.gzn-deck-input');
+      if (di && document.activeElement !== di) di.value = article.deck || '';
+      const si = headlineHost.querySelector('.gzn-source-input');
+      if (si && document.activeElement !== si) si.value = article.source || '';
+    }
+    const textHost = document.querySelector(`[data-node-id="${ids.text}"]`);
+    if (textHost) {
+      textHost.dataset.gznName = nameLc;
+      const ta = textHost.querySelector('.gzn-paragraphs-input');
+      if (ta && document.activeElement !== ta) ta.value = (article.paragraphs || []).join('\n\n');
+    }
+    const imageHost = document.querySelector(`[data-node-id="${ids.image}"]`);
+    if (imageHost) {
+      imageHost.dataset.gznName = nameLc;
+      const slot = imageHost.querySelector('.gzn-image-slot');
+      if (slot) slot.innerHTML = gznImageSlotHtml(article);
+    }
+  }
+
+  // ── Газеты · ноды: viewport init, pan/zoom ─────────────────────────────────
+  function gznInitViewport() {
+    gznLoadSettingsLS();
+    if (_gznViewportInited) return;
+    _gznViewportInited = true;
+    const vp = document.getElementById('gznViewport');
+    if (!vp) return;
+    const edgesSvg = document.getElementById('gznEdges');
+    if (edgesSvg) edgesSvg.addEventListener('click', gznHandleEdgeClick);
+    let panStart = null;
+    vp.addEventListener('pointerdown', e => {
+      if (e.target.closest('.gzn-node-host,.gzn-group,.gzn-edge-hit')) return;
+      panStart = { x: e.clientX, y: e.clientY, panX: _gznCanvas.panX, panY: _gznCanvas.panY };
+      vp.setPointerCapture(e.pointerId);
+      vp.classList.add('panning');
+    });
+    vp.addEventListener('pointermove', e => {
+      if (!panStart) return;
+      _gznCanvas.panX = panStart.panX + (e.clientX - panStart.x);
+      _gznCanvas.panY = panStart.panY + (e.clientY - panStart.y);
+      gznScheduleCanvasFrame();
+    });
+    ['pointerup', 'pointercancel'].forEach(ev => vp.addEventListener(ev, () => {
+      if (panStart) { panStart = null; vp.classList.remove('panning'); gznScheduleSaveLayout(); }
+    }));
+    vp.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = vp.getBoundingClientRect();
+      const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+      const worldX = (cx - _gznCanvas.panX) / _gznCanvas.zoom;
+      const worldY = (cy - _gznCanvas.panY) / _gznCanvas.zoom;
+      const factor = Math.exp(-e.deltaY * 0.001);
+      const newZoom = Math.min(2, Math.max(0.25, _gznCanvas.zoom * factor));
+      _gznCanvas.panX = cx - worldX * newZoom;
+      _gznCanvas.panY = cy - worldY * newZoom;
+      _gznCanvas.zoom = newZoom;
+      gznScheduleCanvasFrame();
+      gznScheduleSaveLayout();
+    }, { passive: false });
+
+    gznInitAddMenu();
+    gznInitMinimap();
+    gznApplyCanvasTransform();
+  }
+
+  function gznApplyCanvasTransform() {
+    const world = document.getElementById('gznWorld');
+    if (world) world.style.transform = `translate(${_gznCanvas.panX}px,${_gznCanvas.panY}px) scale(${_gznCanvas.zoom})`;
+    gznDrawMinimap();
+  }
+
+  function gznScheduleCanvasFrame() {
+    if (_gznCanvasRafPending) return;
+    _gznCanvasRafPending = true;
+    requestAnimationFrame(() => { _gznCanvasRafPending = false; gznApplyCanvasTransform(); });
+  }
+
+  function gznAnimateCanvasTransform() {
+    const world = document.getElementById('gznWorld');
+    if (!world) { gznApplyCanvasTransform(); return; }
+    if (_gznSettings.animateOn) {
+      world.style.transition = 'transform var(--gzn-anim-dur,.35s) cubic-bezier(.22,1,.36,1)';
+      setTimeout(() => { world.style.transition = ''; }, 450);
+    }
+    gznApplyCanvasTransform();
+  }
+
+  function gznZoomBy(factor) {
+    const vp = document.getElementById('gznViewport');
+    if (!vp) return;
+    const rect = vp.getBoundingClientRect();
+    const cx = rect.width / 2, cy = rect.height / 2;
+    const worldX = (cx - _gznCanvas.panX) / _gznCanvas.zoom;
+    const worldY = (cy - _gznCanvas.panY) / _gznCanvas.zoom;
+    const newZoom = Math.min(2, Math.max(0.25, _gznCanvas.zoom * factor));
+    _gznCanvas.panX = cx - worldX * newZoom;
+    _gznCanvas.panY = cy - worldY * newZoom;
+    _gznCanvas.zoom = newZoom;
+    gznAnimateCanvasTransform();
+    gznScheduleSaveLayout();
+  }
+
+  function gznResetView() {
+    _gznCanvas.panX = 40; _gznCanvas.panY = 40; _gznCanvas.zoom = 1;
+    gznAnimateCanvasTransform();
+    gznScheduleSaveLayout();
+  }
+
+  // ── Газеты · ноды: позиционирование и drag нод ─────────────────────────────
+  function gznAutoPositionFor(index) {
+    const col = index % 3, row = Math.floor(index / 3);
+    return { x: 60 + col * 620, y: 40 + row * 300 };
+  }
+
+  function gznPositionNode(nodeId) {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+    const p = _gznNodePositions[nodeId];
+    if (el && p) el.style.transform = `translate(${p.x}px,${p.y}px)`;
+  }
+
+  function gznObserveNode(nodeId) {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (!el) return;
+    if (!_gznResizeObserver) {
+      _gznResizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          const id = entry.target.dataset.nodeId;
+          if (!id) continue;
+          _gznNodeSizeCache[id] = entry.target.offsetHeight;
+          gznRecalcEdgesFor(id);
+        }
+      });
+    }
+    _gznResizeObserver.observe(el);
+    _gznNodeSizeCache[nodeId] = el.offsetHeight;
+  }
+
+  function gznMakeDraggable(nodeId) {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (!el || el.dataset.gznDraggable) return;
+    el.dataset.gznDraggable = '1';
+    const head = el.querySelector('.gzn-node-head');
+    if (!head) return;
+    head.addEventListener('pointerdown', e => {
+      if (e.target.closest('input,button,textarea,select,.gzn-node-del')) return;
+      e.stopPropagation();
+      head.setPointerCapture(e.pointerId);
+      el.classList.remove('gzn-anim-move');
+      el.classList.add('gzn-dragging');
+      const pos = _gznNodePositions[nodeId] || { x: 0, y: 0 };
+      _gznDrag = { nodeId, startClientX: e.clientX, startClientY: e.clientY, startX: pos.x, startY: pos.y, pending: false, moved: false };
+    });
+    head.addEventListener('pointermove', e => {
+      if (!_gznDrag || _gznDrag.nodeId !== nodeId) return;
+      if (!_gznDrag.moved && (Math.abs(e.clientX - _gznDrag.startClientX) > 3 || Math.abs(e.clientY - _gznDrag.startClientY) > 3)) {
+        _gznDrag.moved = true;
+      }
+      const dx = (e.clientX - _gznDrag.startClientX) / _gznCanvas.zoom;
+      const dy = (e.clientY - _gznDrag.startClientY) / _gznCanvas.zoom;
+      let x = _gznDrag.startX + dx, y = _gznDrag.startY + dy;
+      if (_gznSettings.snapGrid) {
+        const g = _gznSettings.gridStep || 20;
+        x = Math.round(x / g) * g; y = Math.round(y / g) * g;
+      }
+      _gznNodePositions[nodeId] = { x, y };
+      if (!_gznDrag.pending) {
+        _gznDrag.pending = true;
+        requestAnimationFrame(() => {
+          if (!_gznDrag) return;
+          _gznDrag.pending = false;
+          gznPositionNode(nodeId);
+          gznRecalcEdgesFor(nodeId);
+        });
+      }
+    });
+    const finishDrag = () => {
+      if (!_gznDrag || _gznDrag.nodeId !== nodeId) return;
+      el.classList.remove('gzn-dragging');
+      if (_gznDrag.moved) { _gznJustDragged = true; gznScheduleSaveLayout(); }
+      _gznDrag = null;
+    };
+    head.addEventListener('pointerup', finishDrag);
+    head.addEventListener('pointercancel', finishDrag);
+  }
+
+  function gznAlignAll() {
+    const hosts = document.querySelectorAll('.gzn-node-host,.gzn-group');
+    hosts.forEach(el => el.classList.add('gzn-anim-move'));
+    (_gznState.articles || []).forEach((a, i) => {
+      const ids = gznClusterNodeIds(a.id);
+      const pos = gznClusterPositions(gznAutoPositionFor(i));
+      _gznNodePositions[ids.main] = pos.main;
+      if (_gznExpanded.has(a.id)) ['headline', 'text', 'image'].forEach(k => { _gznNodePositions[ids[k]] = pos[k]; });
+    });
+    Object.keys(_gznNodePositions).forEach(gznPositionNode);
+    gznRecalcEdges();
+    setTimeout(() => hosts.forEach(el => el.classList.remove('gzn-anim-move')), 450);
+    gznScheduleSaveLayout();
+  }
+
+  // ── Газеты · ноды: SVG-рёбра ────────────────────────────────────────────────
+  function gznEdgeList() {
+    const edges = [];
+    const hasArticle = id => (_gznState.articles || []).some(a => a.id === id);
+    (_gznState.articles || []).forEach(a => {
+      const ids = gznClusterNodeIds(a.id);
+      if (_gznExpanded.has(a.id)) {
+        edges.push({ from: ids.main, to: ids.headline, type: 'data' });
+        edges.push({ from: ids.main, to: ids.text, type: 'data' });
+        edges.push({ from: ids.main, to: ids.image, type: 'data' });
+      }
+      if (a.image && a.image.imageId) {
+        const imgNode = _gznImageNodes.find(n => n.id === a.image.imageId);
+        if (imgNode) edges.push({ from: 'imgnode-' + imgNode.id, to: ids.main, kind: 'image', type: 'image' });
+      }
+    });
+    _gznSettingsNodes.forEach(s => {
+      if (s.target && s.target.articleId && hasArticle(s.target.articleId)) {
+        edges.push({ from: 'settings-' + s.id, to: 'article-' + s.target.articleId, kind: 'settings', type: 'settings' });
+      }
+    });
+    _gznTemplateNodes.forEach(t => {
+      (t.targets || []).forEach(articleId => {
+        if (hasArticle(articleId)) edges.push({ from: 'template-' + t.id, to: 'article-' + articleId, kind: 'template', type: 'template' });
+      });
+    });
+    _gznCameraNodes.forEach(c => {
+      (c.targets || []).forEach(articleId => {
+        if (hasArticle(articleId)) edges.push({ from: 'camera-' + c.id, to: 'article-' + articleId, kind: 'camera', type: 'camera' });
+      });
+    });
+    return edges;
+  }
+
+  function gznPortPoint(nodeId, side) {
+    const p = _gznNodePositions[nodeId];
+    if (!p) return null;
+    const h = _gznNodeSizeCache[nodeId] || 80;
+    return { x: side === 'out' ? p.x + 260 : p.x, y: p.y + h / 2 };
+  }
+
+  function gznEdgePath(from, to) {
+    const p1 = gznPortPoint(from, 'out'), p2 = gznPortPoint(to, 'in');
+    if (!p1 || !p2) return '';
+    const dx = Math.max(60, Math.abs(p2.x - p1.x) / 2);
+    return `M${p1.x},${p1.y} C${p1.x + dx},${p1.y} ${p2.x - dx},${p2.y} ${p2.x},${p2.y}`;
+  }
+
+  function gznRecalcEdges() {
+    const svg = document.getElementById('gznEdges');
+    if (!svg) return;
+    const seen = new Set();
+    gznEdgeList().forEach(e => {
+      const id = `gzn-edge-${e.from}-${e.to}`;
+      seen.add(id);
+      let path = document.getElementById(id);
+      if (!path) {
+        path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.id = id;
+        svg.appendChild(path);
+      }
+      const d = gznEdgePath(e.from, e.to);
+      path.setAttribute('d', d);
+      path.setAttribute('class', 'gzn-edge-t-' + (e.type || 'data') + (e.kind ? ' gzn-edge-removable' : ''));
+
+      const hitId = id + '-hit';
+      let hit = document.getElementById(hitId);
+      if (e.kind) {
+        seen.add(hitId);
+        if (!hit) {
+          hit = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          hit.id = hitId;
+          hit.setAttribute('class', 'gzn-edge-hit');
+          hit.addEventListener('mouseenter', () => path.classList.add('gzn-edge-hover'));
+          hit.addEventListener('mouseleave', () => path.classList.remove('gzn-edge-hover'));
+          svg.appendChild(hit);
+        }
+        hit.setAttribute('d', d);
+        hit.dataset.kind = e.kind;
+        hit.dataset.from = e.from;
+        hit.dataset.to = e.to;
+      } else if (hit) {
+        hit.remove();
+      }
+    });
+    Array.from(svg.children).forEach(p => { if (!seen.has(p.id)) p.remove(); });
+  }
+
+  function gznHandleEdgeClick(e) {
+    const hit = e.target.closest('path.gzn-edge-hit');
+    if (!hit) return;
+    const kind = hit.dataset.kind;
+    const articleId = (hit.dataset.to || '').replace(/^article-/, '');
+    if (kind === 'image') {
+      gznDetachImage(articleId);
+    } else if (kind === 'settings') {
+      gznDetachSettings(hit.dataset.from.replace(/^settings-/, ''));
+    } else if (kind === 'template') {
+      gznTemplateDetach(hit.dataset.from.replace(/^template-/, ''), articleId);
+    } else if (kind === 'camera') {
+      gznCameraDetach(hit.dataset.from.replace(/^camera-/, ''), articleId);
+    }
+  }
+
+  function gznRecalcEdgesFor(nodeId) {
+    gznEdgeList().filter(e => e.from === nodeId || e.to === nodeId).forEach(e => {
+      const d = gznEdgePath(e.from, e.to);
+      const path = document.getElementById(`gzn-edge-${e.from}-${e.to}`);
+      if (path) path.setAttribute('d', d);
+      const hit = document.getElementById(`gzn-edge-${e.from}-${e.to}-hit`);
+      if (hit) hit.setAttribute('d', d);
+    });
+  }
+
+  // ── Газеты · ноды: drag-to-connect (картинка/настройки/шаблон/камера → Статья) ──
+  // Выходные порты нод-источников (картинка/настройки/шаблон/камера) перетаскиваемые;
+  // цель всегда главная нода Статья (article-<id>). Рёбра main→поля рисуются авто.
+  function gznWireKind(nodeId) {
+    if (nodeId.startsWith('imgnode-')) return 'image';
+    if (nodeId.startsWith('settings-')) return 'settings';
+    if (nodeId.startsWith('template-')) return 'template';
+    if (nodeId.startsWith('camera-')) return 'camera';
+    return null;
+  }
+
+  function gznWireForNode(nodeId) {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+    const port = el && el.querySelector('.gzn-port-out');
+    if (!port || port.dataset.gznWireBound) return;
+    port.dataset.gznWireBound = '1';
+    port.style.pointerEvents = 'auto';
+    port.style.cursor = 'crosshair';
+    port.addEventListener('pointerdown', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      const kind = gznWireKind(nodeId);
+      if (!kind) return;
+      _gznWire = { fromNodeId: nodeId, kind };
+      const move = ev => gznWireDragMove(ev);
+      const up = ev => { gznWireDragEnd(ev); document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); };
+      document.addEventListener('pointermove', move);
+      document.addEventListener('pointerup', up);
+    });
+  }
+
+  function gznWireDragMove(e) {
+    if (!_gznWire) return;
+    const vp = document.getElementById('gznViewport');
+    const rect = vp.getBoundingClientRect();
+    const worldX = (e.clientX - rect.left - _gznCanvas.panX) / _gznCanvas.zoom;
+    const worldY = (e.clientY - rect.top - _gznCanvas.panY) / _gznCanvas.zoom;
+    const p1 = gznPortPoint(_gznWire.fromNodeId, 'out');
+    if (!p1) return;
+    const svg = document.getElementById('gznEdges');
+    let path = document.getElementById('gzn-wire-temp');
+    if (!path) {
+      path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.id = 'gzn-wire-temp';
+      path.setAttribute('stroke-dasharray', '4 3');
+      svg.appendChild(path);
+    }
+    const dx = Math.max(60, Math.abs(worldX - p1.x) / 2);
+    path.setAttribute('d', `M${p1.x},${p1.y} C${p1.x + dx},${p1.y} ${worldX - dx},${worldY} ${worldX},${worldY}`);
+  }
+
+  async function gznWireDragEnd(e) {
+    const wire = _gznWire;
+    _gznWire = null;
+    const temp = document.getElementById('gzn-wire-temp');
+    if (temp) temp.remove();
+    if (!wire) return;
+    const target = document.elementFromPoint(e.clientX, e.clientY);
+    const hostEl = target && target.closest('[data-node-id]');
+    if (!hostEl) return;
+    // Цель — главная нода Статья: принимаем как article-<id>, так и сателлит *-<id>.
+    const m = hostEl.dataset.nodeId.match(/^(?:article|headline|text|image)-(.+)$/);
+    if (!m) return;
+    const articleId = m[1];
+    if (!gznArticleFor(articleId)) return;
+
+    if (wire.kind === 'image') {
+      const imgNode = _gznImageNodes.find(n => 'imgnode-' + n.id === wire.fromNodeId);
+      if (imgNode) await gznAttachImage(articleId, imgNode.id);
+    } else if (wire.kind === 'settings') {
+      const sNode = _gznSettingsNodes.find(n => 'settings-' + n.id === wire.fromNodeId);
+      if (!sNode) return;
+      sNode.target = { articleId };
+      gznRenderSettingsNodes();
+      gznRecalcEdges();
+      gznScheduleSaveLayout();
+    } else if (wire.kind === 'template') {
+      const tNode = _gznTemplateNodes.find(n => 'template-' + n.id === wire.fromNodeId);
+      if (tNode) gznTemplateAttach(tNode.id, articleId);
+    } else if (wire.kind === 'camera') {
+      const cNode = _gznCameraNodes.find(n => 'camera-' + n.id === wire.fromNodeId);
+      if (cNode) gznCameraAttach(cNode.id, articleId);
+    }
+  }
+
+  async function gznAttachImage(articleId, imageId) {
+    const project = gznProject();
+    const r = await post('/api/gzn/image/attach', { project, articleId, imageId });
+    if (r.error) return showToast(r.error, 'error');
+    const a = (_gznState.articles || []).find(x => x.id === articleId);
+    if (a) a.image = r.article.image;
+    gznUpdateClusterDom(a);
+    gznRefreshOverlayOnly(articleId);
+    gznRecalcEdges();
+    showToast('Картинка подключена', 'success');
+  }
+
+  async function gznDetachImage(articleId) {
+    const project = gznProject();
+    const r = await post('/api/gzn/image/detach', { project, articleId });
+    if (r.error) return showToast(r.error, 'error');
+    const a = (_gznState.articles || []).find(x => x.id === articleId);
+    if (a) a.image = null;
+    gznUpdateClusterDom(a);
+    gznRefreshOverlayOnly(articleId);
+    gznRecalcEdges();
+  }
+
+  function gznDeleteArticle(articleId, nodeId) {
+    gznConfirmInNode(nodeId || gznClusterNodeIds(articleId).main, 'Удалить статью целиком?', () => gznDeleteArticleConfirmed(articleId));
+  }
+
+  async function gznDeleteArticleConfirmed(articleId) {
+    const project = gznProject();
+    let r;
+    try { r = await (await fetch(`/api/gzn/article/${articleId}?project=${encodeURIComponent(project)}`, { method: 'DELETE' })).json(); }
+    catch (err) { r = { error: err.message }; }
+    if (r.error) return showToast(r.error, 'error');
+    _gznState.articles = (_gznState.articles || []).filter(a => a.id !== articleId);
+    _gznSettingsNodes.forEach(n => { if (n.target && n.target.articleId === articleId) n.target = null; });
+    _gznTemplateNodes.forEach(n => { n.targets = (n.targets || []).filter(x => x !== articleId); });
+    _gznCameraNodes.forEach(n => { n.targets = (n.targets || []).filter(x => x !== articleId); });
+    _gznExpanded.delete(articleId);
+    if (_gznSelectedArticleId === articleId) _gznSelectedArticleId = null;
+    gznRenderChain();
+    gznRenderSettingsNodes();
+    showToast('Статья удалена', 'success');
+  }
+
+  // ── Газеты · ноды: перетаскивание файла картинки на холст ──────────────────
+  function _gznHasFileDrag(e) {
+    return Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files');
+  }
+  function gznCanvasImageDragEnter(e) {
+    if (!_gznHasFileDrag(e)) return;
+    e.preventDefault();
+    document.getElementById('gznViewport').classList.add('gzn-image-dragover');
+  }
+  function gznCanvasImageDragOver(e) {
+    if (!_gznHasFileDrag(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  }
+  function gznCanvasImageDragLeave(e) {
+    if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('gzn-image-dragover');
+  }
+  async function gznCanvasImageDrop(e) {
+    if (!_gznHasFileDrag(e)) return;
+    e.preventDefault();
+    const vp = document.getElementById('gznViewport');
+    vp.classList.remove('gzn-image-dragover');
+    const file = (e.dataTransfer && e.dataTransfer.files || [])[0];
+    if (!file || !file.type.startsWith('image/')) return;
+    const project = gznProject();
+    if (!project) return showToast('Выберите проект', 'error');
+    const rect = vp.getBoundingClientRect();
+    const worldX = (e.clientX - rect.left - _gznCanvas.panX) / _gznCanvas.zoom;
+    const worldY = (e.clientY - rect.top - _gznCanvas.panY) / _gznCanvas.zoom;
+    const fd = new FormData();
+    fd.append('project', project);
+    fd.append('file', file);
+    let r;
+    try { r = await (await fetch('/api/gzn/image/upload', { method: 'POST', body: fd })).json(); }
+    catch (err) { r = { error: err.message }; }
+    if (r.error) return showToast(r.error, 'error');
+    _gznState.images = r.state.images;
+    _gznImageNodes.push({ id: r.image.id });
+    _gznNodePositions['imgnode-' + r.image.id] = { x: worldX, y: worldY };
+    gznRenderImageNodes();
+    gznScheduleSaveLayout();
+    showToast('Картинка загружена — соедините её со статьёй', 'success');
+  }
+
+  function gznImageNodeHtml(node) {
+    const project = encodeURIComponent(gznProject());
+    return `<div class="gzn-node-host" data-node-id="imgnode-${node.id}">
+      <div class="gzn-node gzn-node-small">
+        <div class="gzn-node-head"><span>Картинка (файл)</span><span class="gzn-node-del" title="Удалить ноду" onclick="event.stopPropagation();gznDeleteImageNode('${node.id}')">✕</span></div>
+        <div class="gzn-node-body">
+          <img class="gzn-image-thumb" src="/api/gzn/image/${node.id}?project=${project}">
+          <div class="gzn-hint">Потяните за точку справа на порт «Картинка» нужной статьи</div>
+        </div>
+      </div>
+      <span class="gzn-port gzn-port-out"></span>
+    </div>`;
+  }
+
+  function gznConfirmInNode(nodeId, message, onYes) {
+    const host = document.querySelector(`[data-node-id="${nodeId}"]`);
+    const nodeEl = host && host.querySelector('.gzn-node');
+    if (!nodeEl) return;
+    const existing = nodeEl.querySelector('.gzn-node-confirm');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'gzn-node-confirm';
+    overlay.innerHTML = `<div class="gzn-node-confirm-msg">${_gznEsc(message)}</div>
+      <div class="gzn-node-confirm-actions">
+        <button type="button" class="gzn-confirm-yes">Удалить</button>
+        <button type="button" class="gzn-confirm-no">Отмена</button>
+      </div>`;
+    overlay.addEventListener('pointerdown', e => e.stopPropagation());
+    overlay.addEventListener('click', e => e.stopPropagation());
+    overlay.querySelector('.gzn-confirm-yes').addEventListener('click', () => { overlay.remove(); onYes(); });
+    overlay.querySelector('.gzn-confirm-no').addEventListener('click', () => overlay.remove());
+    nodeEl.appendChild(overlay);
+  }
+
+  function gznRemoveNodeEl(nodeId) {
+    const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+    if (el) {
+      if (_gznResizeObserver) _gznResizeObserver.unobserve(el);
+      el.remove();
+    }
+    delete _gznNodePositions[nodeId];
+    delete _gznNodeSizeCache[nodeId];
+  }
+
+  function gznDeleteImageNode(imageId) {
+    gznConfirmInNode('imgnode-' + imageId, 'Удалить ноду картинки? Связь со статьёй тоже будет разорвана.', () => gznDeleteImageNodeConfirmed(imageId));
+  }
+
+  async function gznDeleteImageNodeConfirmed(imageId) {
+    const attached = (_gznState.articles || []).filter(a => a.image && a.image.imageId === imageId);
+    for (const a of attached) await gznDetachImage(a.id);
+    _gznImageNodes = _gznImageNodes.filter(n => n.id !== imageId);
+    gznRemoveNodeEl('imgnode-' + imageId);
+    gznRecalcEdges();
+    gznScheduleSaveLayout();
+  }
+
+  function gznRenderImageNodes() {
+    const chain = document.getElementById('gznChain');
+    _gznImageNodes.forEach((node, idx) => {
+      const nodeId = 'imgnode-' + node.id;
+      if (document.querySelector(`[data-node-id="${nodeId}"]`)) return;
+      if (!_gznNodePositions[nodeId]) _gznNodePositions[nodeId] = { x: 40, y: 620 + idx * 190 };
+      const wrap = document.createElement('div');
+      wrap.innerHTML = gznImageNodeHtml(node);
+      const el = wrap.firstElementChild;
+      chain.appendChild(el);
+      gznPositionNode(nodeId);
+      gznMakeDraggable(nodeId);
+      gznObserveNode(nodeId);
+      gznWireForNode(nodeId);
+    });
+    gznRecalcEdges();
+  }
+
+  // ── Газеты · ноды: универсальная нода "Настройки" ───────────────────────────
+  function gznArticleFor(id) {
+    return (_gznState.articles || []).find(a => a.id === id);
+  }
+
+  function gznCenterWorld() {
+    const vp = document.getElementById('gznViewport');
+    const rect = vp.getBoundingClientRect();
+    return { x: (rect.width / 2 - _gznCanvas.panX) / _gznCanvas.zoom, y: (rect.height / 2 - _gznCanvas.panY) / _gznCanvas.zoom };
+  }
+
+  function gznAddSettingsNode(pos) {
+    if (!gznProject()) return showToast('Выберите проект', 'error');
+    const id = 'st' + Math.random().toString(36).slice(2, 9);
+    _gznSettingsNodes.push({ id, target: null });
+    _gznNodePositions['settings-' + id] = pos || gznCenterWorld();
+    gznRenderSettingsNodes();
+    gznScheduleSaveLayout();
+  }
+
+  function gznSettingsNodeHtml(node) {
+    return `<div class="gzn-node-host" data-node-id="settings-${node.id}">
+      <div class="gzn-node gzn-node-small gzn-settings-node">
+        <div class="gzn-node-head"><span>Настройки</span><span class="gzn-node-del" title="Удалить ноду" onclick="event.stopPropagation();gznDeleteSettingsNode('${node.id}')">✕</span></div>
+        <div class="gzn-node-body">${gznSettingsBodyHtml(node)}</div>
+      </div>
+      <span class="gzn-port gzn-port-out"></span>
+    </div>`;
+  }
+
+  function gznSettingsBodyHtml(node) {
+    if (!node.target) return '<div class="gzn-wire-hint">Перетащите за точку справа на ноду Статья</div>';
+    const a = gznArticleFor(node.target.articleId);
+    if (!a) return '<div class="gzn-wire-hint">Статья не найдена</div>';
+    const label = _gznEsc((a.headline || a.name || '').slice(0, 26));
+    const fonts = ['SFProText-Heavy', 'SFProText-Bold', 'SFProText-Semibold', 'SFProText-Light'];
+    const styleGroup = (group, title, defColor) => {
+      const style = (group === 'headline' ? a.headlineStyle : a.textStyle) || {};
+      return `<div class="gzn-set-group"><div class="gzn-set-group-t">${title}</div>
+        <div class="gzn-setting-row">Шрифт
+          <select onchange="gznSettingsField('${node.id}','${group}','font',this.value)">
+            ${fonts.map(f => `<option value="${f}" ${style.font === f ? 'selected' : ''}>${f.replace('SFProText-', '')}</option>`).join('')}
+          </select></div>
+        <div class="gzn-setting-row">Размер
+          <input type="range" min="0.6" max="1.6" step="0.02" value="${style.size ?? 1}"
+                 oninput="gznSettingsField('${node.id}','${group}','size',this.value);this.nextElementSibling.textContent=(+this.value).toFixed(2)">
+          <span class="gzn-val">${(style.size ?? 1).toFixed(2)}</span></div>
+        <div class="gzn-setting-row">Цвет
+          <input type="color" value="${style.color || defColor}" oninput="gznSettingsField('${node.id}','${group}','color',this.value)"></div>
+      </div>`;
+    };
+    let html = `<div class="gzn-hint">Статья: «${label}»</div>` + styleGroup('headline', 'Заголовок', '#FC3026') + styleGroup('text', 'Текст', '#221e18');
+    if (a.image) {
+      const img = a.image;
+      const paraCount = (a.paragraphs || []).length;
+      html += `<div class="gzn-set-group"><div class="gzn-set-group-t">Картинка</div>
+        <label class="gzn-setting-row" style="cursor:pointer">
+          <input type="checkbox" ${img.enabled ? 'checked' : ''} onchange="gznSetImageEnabled('${a.id}',this.checked)">
+          Показывать в статье</label>
+        <div class="gzn-setting-row">Размер
+          <input type="range" min="0.35" max="0.65" step="0.01" value="${img.scale ?? 0.45}"
+                 oninput="gznSettingsField('${node.id}','image','scale',this.value);this.nextElementSibling.textContent=Math.round(this.value*100)+'%'">
+          <span class="gzn-val">${Math.round((img.scale ?? 0.45) * 100)}%</span></div>
+        <div class="gzn-setting-row">Кроп X
+          <input type="range" min="-40" max="40" step="1" value="${img.offsetX ?? 0}" oninput="gznSettingsField('${node.id}','image','offsetX',this.value)"></div>
+        <div class="gzn-setting-row">Кроп Y
+          <input type="range" min="-40" max="40" step="1" value="${img.offsetY ?? 0}" oninput="gznSettingsField('${node.id}','image','offsetY',this.value)"></div>
+        <div class="gzn-setting-row">Позиция
+          <input type="range" min="0" max="${Math.max(1, paraCount)}" step="1" value="${img.anchorIndex ?? 0}"
+                 oninput="gznSettingsField('${node.id}','image','anchorIndex',this.value);this.nextElementSibling.textContent=this.value">
+          <span class="gzn-val">${img.anchorIndex ?? 0}</span></div>
+        <div class="gzn-side-toggle">
+          <button class="${(img.side || 'left') === 'left' ? 'active' : ''}" onclick="gznSettingsField('${node.id}','image','side','left')">Слева</button>
+          <button class="${img.side === 'right' ? 'active' : ''}" onclick="gznSettingsField('${node.id}','image','side','right')">Справа</button>
+        </div></div>`;
+    }
+    html += `<div class="gzn-row"><button class="btn2" onclick="gznDetachSettings('${node.id}')">Отключить</button></div>`;
+    return html;
+  }
+
+  function gznRenderSettingsNodes() {
+    const chain = document.getElementById('gznChain');
+    _gznSettingsNodes.forEach(node => {
+      const nodeId = 'settings-' + node.id;
+      let el = document.querySelector(`[data-node-id="${nodeId}"]`);
+      if (!el) {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = gznSettingsNodeHtml(node);
+        el = wrap.firstElementChild;
+        chain.appendChild(el);
+        gznPositionNode(nodeId);
+        gznMakeDraggable(nodeId);
+        gznObserveNode(nodeId);
+        gznWireForNode(nodeId);
+      } else {
+        const body = el.querySelector('.gzn-node-body');
+        if (body) body.innerHTML = gznSettingsBodyHtml(node);
+      }
+    });
+    gznRecalcEdges();
+  }
+
+  function gznSettingsField(nodeId, field, key, value) {
+    const node = _gznSettingsNodes.find(n => n.id === nodeId);
+    if (!node || !node.target) return;
+    const a = gznArticleFor(node.target.articleId);
+    if (!a) return;
+    if (field === 'headline' || field === 'text') {
+      const styleKey = field === 'headline' ? 'headlineStyle' : 'textStyle';
+      a[styleKey] = a[styleKey] || {};
+      a[styleKey][key] = key === 'size' ? parseFloat(value) : value;
+    } else if (field === 'image') {
+      a.image = a.image || {};
+      if (key === 'scale' || key === 'offsetX' || key === 'offsetY') a.image[key] = parseFloat(value);
+      else if (key === 'anchorIndex') a.image[key] = parseInt(value, 10);
+      else a.image[key] = value;
+    }
+    gznRefreshOverlayOnly(a.id);
+    gznScheduleSave(a.id);
+    if (key === 'side' || key === 'font') gznRenderSettingsNodes();
+  }
+
+  function gznDetachSettings(nodeId) {
+    const node = _gznSettingsNodes.find(n => n.id === nodeId);
+    if (node) node.target = null;
+    gznRenderSettingsNodes();
+    gznScheduleSaveLayout();
+  }
+
+  function gznDeleteSettingsNode(nodeId) {
+    gznConfirmInNode('settings-' + nodeId, 'Удалить ноду настроек?', () => gznDeleteSettingsNodeConfirmed(nodeId));
+  }
+
+  function gznDeleteSettingsNodeConfirmed(nodeId) {
+    _gznSettingsNodes = _gznSettingsNodes.filter(n => n.id !== nodeId);
+    gznRemoveNodeEl('settings-' + nodeId);
+    gznRecalcEdges();
+    gznScheduleSaveLayout();
+  }
+
+  // ── Газеты · ноды: настройки (localStorage, per-browser) ───────────────────
+  function gznToggleSettings() {
+    document.getElementById('gznSettingsPop')?.classList.toggle('open');
+  }
+
+  document.addEventListener('pointerdown', e => {
+    const pop = document.getElementById('gznSettingsPop');
+    if (pop && pop.classList.contains('open') && !pop.contains(e.target) && !e.target.closest('.gzn-toolbar-gear')) {
+      pop.classList.remove('open');
+    }
+  });
+
+  function gznSetSetting(key, value) {
+    _gznSettings[key] = (key === 'animateOn' || key === 'snapGrid') ? !!value : parseFloat(value);
+    gznApplyAnimDur();
+    gznSyncSettingsUI();
+    gznSaveSettingsLS();
+  }
+
+  function gznApplyAnimDur() {
+    const dur = _gznSettings.animateOn ? (0.35 / Math.max(0.1, _gznSettings.animSpeed || 1)) : 0;
+    document.documentElement.style.setProperty('--gzn-anim-dur', dur + 's');
+  }
+
+  function gznSyncSettingsUI() {
+    const el = id => document.getElementById(id);
+    if (el('gznSetAnimSpeed')) el('gznSetAnimSpeed').value = _gznSettings.animSpeed;
+    if (el('gznSetAnimSpeedVal')) el('gznSetAnimSpeedVal').textContent = _gznSettings.animSpeed.toFixed(1) + '×';
+    if (el('gznSetAnimateOn')) el('gznSetAnimateOn').checked = _gznSettings.animateOn;
+    if (el('gznSetSnap')) el('gznSetSnap').checked = _gznSettings.snapGrid;
+    if (el('gznSetGridStep')) el('gznSetGridStep').value = _gznSettings.gridStep;
+    if (el('gznSetGridStepVal')) el('gznSetGridStepVal').textContent = _gznSettings.gridStep + 'px';
+  }
+
+  let _gznSettingsLoaded = false;
+  function gznLoadSettingsLS() {
+    if (_gznSettingsLoaded) return;
+    _gznSettingsLoaded = true;
+    try {
+      const raw = localStorage.getItem('gzn_settings');
+      if (raw) {
+        Object.assign(_gznSettings, JSON.parse(raw));
+      } else if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        _gznSettings.animateOn = false;
+      }
+    } catch (e) {}
+    gznApplyAnimDur();
+    gznSyncSettingsUI();
+  }
+
+  function gznSaveSettingsLS() {
+    try { localStorage.setItem('gzn_settings', JSON.stringify(_gznSettings)); } catch (e) {}
+  }
+
+  // ── Газеты · ноды: сохранение позиций/вида канваса (localStorage, per-проект) ─
+  function gznLayoutKey() {
+    return 'gzn_layout_' + gznProject();
+  }
+
+  function gznScheduleSaveLayout() {
+    clearTimeout(_gznLayoutSaveTimer);
+    _gznLayoutSaveTimer = setTimeout(gznSaveLayout, 400);
+  }
+
+  function gznSaveLayout() {
+    const project = gznProject();
+    if (!project) return;
+    try {
+      localStorage.setItem(gznLayoutKey(), JSON.stringify({
+        positions: _gznNodePositions,
+        view: { panX: _gznCanvas.panX, panY: _gznCanvas.panY, zoom: _gznCanvas.zoom },
+        imageNodes: _gznImageNodes,
+        settingsNodes: _gznSettingsNodes,
+        templateNodes: _gznTemplateNodes,
+        cameraNodes: _gznCameraNodes,
+        noteNodes: _gznNoteNodes,
+        expanded: Array.from(_gznExpanded),
+      }));
+    } catch (e) {}
+  }
+
+  function gznLoadLayout() {
+    _gznNodePositions = {};
+    _gznCanvas = { panX: 40, panY: 40, zoom: 1 };
+    _gznImageNodes = [];
+    _gznSettingsNodes = [];
+    _gznTemplateNodes = [];
+    _gznCameraNodes = [];
+    _gznNoteNodes = [];
+    _gznExpanded.clear();
+    const project = gznProject();
+    if (!project) return;
+    try {
+      const raw = localStorage.getItem(gznLayoutKey());
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        _gznNodePositions = parsed.positions || {};
+        if (parsed.view) Object.assign(_gznCanvas, parsed.view);
+        _gznImageNodes = parsed.imageNodes || [];
+        _gznSettingsNodes = parsed.settingsNodes || [];
+        _gznTemplateNodes = parsed.templateNodes || [];
+        _gznCameraNodes = parsed.cameraNodes || [];
+        _gznNoteNodes = parsed.noteNodes || [];
+        (parsed.expanded || []).forEach(id => _gznExpanded.add(id));
+      }
+    } catch (e) {}
+  }
+
+  function gznOpenPreviewModal(id) {
+    const article = (_gznState.articles || []).find(a => a.id === id);
+    if (!article) return;
+    _gznModalArticleId = id;
+    gznSelectArticle(id);
+    const s = article.settings || {scale: 1, x: 0, y: 0, animate: true};
+    document.getElementById('gznModalStatus').textContent =
+      article.headline || article.name || {previewed: 'превью готово', rendered: 'отрендерено', error: 'ошибка'}[article.status] || '';
+    document.getElementById('gznModalScale').value = s.scale;
+    document.getElementById('gznModalScaleVal').textContent = Number(s.scale).toFixed(2);
+    document.getElementById('gznModalX').value = s.x;
+    document.getElementById('gznModalXVal').textContent = s.x;
+    document.getElementById('gznModalY').value = s.y;
+    document.getElementById('gznModalYVal').textContent = s.y;
+    document.getElementById('gznModalAnimate').checked = !!s.animate;
+    document.getElementById('gznModalRenderProgress').style.width = '0%';
+    document.getElementById('gznPreviewModalOverlay').classList.add('open');
+    gznMountInto('gzn-modal-lottie', 'gzn-modal-overlay', article).then(() => gznScaleOverlayEl('gzn-modal-stage', 'gzn-modal-overlay'));
+  }
+
+  function gznClosePreviewModal() {
+    document.getElementById('gznPreviewModalOverlay').classList.remove('open');
+    _gznModalArticleId = null;
+  }
+
+  function gznModalSetting(key, value) {
+    if (_gznModalArticleId) gznUpdateSetting(_gznModalArticleId, key, value);
+  }
+
+  function gznComputeLayout(geom) {
+    const COL = {
+      left: geom.maxL + 35,
+      width: geom.minR - 35 - (geom.maxL + 35),
+      padTop: geom.y0 + 60,
+      padBot: 1080 - geom.y1 + 70,
+    };
+    const K = Math.max(0.75, Math.min(1.15, COL.width / 690));
+    const FS = {
+      headline: Math.round(64 * K),
+      deck: Math.round(28 * K),
+      body: Math.round(26 * K),
+      kicker: Math.round(22 * Math.max(0.85, K)),
+    };
+    const underH = Math.max(7, Math.round(11 * K));
+    return { COL, FS, underH };
+  }
+
+  async function gznEnsureGeom(template) {
+    if (_gznGeomCache[template]) return _gznGeomCache[template];
+    const geom = await fetch('/api/gzn/geom/' + template).then(r => r.ok ? r.json() : null).catch(() => null);
+    if (!geom) return null;
+    const layout = gznComputeLayout(geom);
+    _gznGeomCache[template] = layout;
+    return layout;
+  }
+
+  // Живое превью = заголовок/текст/акцент моментально отрисованы поверх
+  // Lottie-фона той же вёрсткой, что paper_pipeline/compose.mjs (.kicker/.headline/
+  // .hl/.under/.deck/.body-p) — но всегда в «устоявшемся» (не анимированном) виде.
+  const _GZN_FONT_WEIGHT = { 'SFProText-Heavy': 800, 'SFProText-Bold': 700, 'SFProText-Semibold': 600, 'SFProText-Light': 300 };
+
+  // Зеркалит интерливинг картинки из paper_pipeline/compose.mjs bodyHtml() —
+  // floated-блок перед параграфом anchorIndex, тот же CSS-класс, что и в финальном рендере.
+  function gznBodyParasHtml(article, layout) {
+    const { FS } = layout;
+    const paras = (article.paragraphs || []).slice(0, 9);
+    const img = (article.image && article.image.enabled) ? article.image : null;  // выключенная картинка не рендерится
+    let imgHtml = '';
+    if (img) {
+      const project = encodeURIComponent(gznProject());
+      const scalePct = Math.round((img.scale ?? 0.45) * 100);
+      const ox = 50 + (img.offsetX ?? 0), oy = 50 + (img.offsetY ?? 0);
+      imgHtml = `<div class="gzn-ov-inline-image gzn-ov-inline-image-${img.side === 'right' ? 'right' : 'left'}" style="width:${scalePct}%">
+        <img src="/api/gzn/image/${img.imageId}?project=${project}" style="object-position:${ox}% ${oy}%">
+      </div>`;
+    }
+    const idx = img ? Math.max(0, Math.min(paras.length, img.anchorIndex ?? 0)) : -1;
+    return paras.map((p, i) => `${i === idx ? imgHtml : ''}<p class="gzn-ov-body-p" style="font-size:${FS.body}px;font-weight:${_GZN_FONT_WEIGHT[(article.textStyle||{}).font] || 300}">${_gznEsc(p)}</p>`).join('')
+      + (idx >= paras.length ? imgHtml : '');
+  }
+
+  function gznBuildOverlayHtml(article, layout) {
+    const { COL, FS, underH } = layout;
+    const hs = article.headlineStyle || {};
+    const accent = hs.color || '#FC3026';
+    const headlineWeight = _GZN_FONT_WEIGHT[hs.font] || 800;
+    const headlineSize = Math.round(FS.headline * (hs.size ?? 1));
+    const words = (article.headline || '').trim().split(/\s+/).filter(Boolean).join(' ');
+    return `<div style="position:absolute;left:${COL.left}px;top:0;width:${COL.width}px;padding:${COL.padTop}px 0 ${COL.padBot}px">
+      <div class="gzn-ov-kicker" style="font-size:${FS.kicker}px;letter-spacing:2.5px;color:${accent}">
+        <span class="gzn-ov-rule" style="background:${accent}"></span>${_gznEsc((article.source || '').toUpperCase())}${article.kicker ? ' · ' + _gznEsc(article.kicker.toUpperCase()) : ''}
+      </div>
+      <div class="gzn-ov-head-wrap">
+        <div class="gzn-ov-hl" style="background:${accent}"></div>
+        <h1 class="gzn-ov-headline" style="font-size:${headlineSize}px;font-weight:${headlineWeight}">${_gznEsc(words)}</h1>
+      </div>
+      <div class="gzn-ov-under" style="height:${underH}px;background:${accent}"></div>
+      ${article.deck ? `<p class="gzn-ov-deck" style="font-size:${FS.deck}px">${_gznEsc(article.deck)}</p>` : ''}
+      ${gznBodyParasHtml(article, layout)}
+    </div>`;
+  }
+
+  // Фон = собранная compose.mjs "бумага" (animation.json: обрезанная торн-текстура,
+  // застывшая на устоявшемся кадре, без чёрных полей) — та же, что уходит в финальный
+  // рендер. Раньше брали сырой общий шаблон data{n}.json — он ещё анимирован и не
+  // всегда во весь кадр, поэтому в превью были видны рамки сверху/снизу.
+  async function gznMountInto(lottieElId, overlayElId, article) {
+    const lottieEl = document.getElementById(lottieElId);
+    const overlayEl = document.getElementById(overlayElId);
+    if (!article || !lottieEl || !overlayEl) return;
+
+    if (_gznAnims[lottieElId]) { try { _gznAnims[lottieElId].destroy(); } catch (e) {} delete _gznAnims[lottieElId]; }
+    lottieEl.innerHTML = '';
+    if (await _gzEnsureLottie()) {
+      try {
+        const animUrl = () => '/api/gzn/animation/' + encodeURIComponent(article.id) + '?v=' + (_gznAnimVersion[article.id] || 0);
+        let resp = await fetch(animUrl());
+        // Бумага ещё не собрана (статья из старой версии / прошлый прогон упал) —
+        // собираем её на лету, чтобы в превью была реальная газета, а не чёрный фон.
+        if (!resp.ok && !_gznPrecomposeTried[article.id]) {
+          _gznPrecomposeTried[article.id] = true;
+          const pr = await post('/api/gzn/precompose/' + encodeURIComponent(article.id), { project: gznProject() });
+          if (!pr.error) {
+            _gznAnimVersion[article.id] = (_gznAnimVersion[article.id] || 0) + 1;
+            resp = await fetch(animUrl());
+          }
+        }
+        if (resp.ok) {
+          const animData = await resp.json();
+          const anim = lottie.loadAnimation({
+            container: lottieEl, renderer: 'svg', loop: false, autoplay: false, animationData: animData,
+            assetsPath: '/api/gzn/render_asset/' + encodeURIComponent(article.id) + '/',
+          });
+          anim.addEventListener('DOMLoaded', () => anim.goToAndStop(22, true));
+          _gznAnims[lottieElId] = anim;
+        }
+      } catch (e) { /* нет сети или фон ещё не собран — текст всё равно виден */ }
+    }
+    const layout = await gznEnsureGeom(article.template || '2');
+    if (layout) overlayEl.innerHTML = gznBuildOverlayHtml(article, layout);
+    gznApplyCameraTo(overlayElId, article);
+  }
+
+  async function gznMountStage(id) {
+    const article = (_gznState.articles || []).find(a => a.id === id);
+    if (!article) return;
+    await gznMountInto('gzn-lottie-' + id, 'gzn-overlay-' + id, article);
+    gznScaleOverlayEl('gzn-stage-' + id, 'gzn-overlay-' + id);
+  }
+
+  async function gznRefreshOverlayOnly(id) {
+    const article = (_gznState.articles || []).find(a => a.id === id);
+    if (!article) return;
+    const layout = await gznEnsureGeom(article.template || '2');
+    if (!layout) return;
+    const html = gznBuildOverlayHtml(article, layout);
+    const chainOverlay = document.getElementById('gzn-overlay-' + id);
+    if (chainOverlay) chainOverlay.innerHTML = html;
+    if (_gznModalArticleId === id) {
+      const modalOverlay = document.getElementById('gzn-modal-overlay');
+      if (modalOverlay) modalOverlay.innerHTML = html;
+    }
+    if (_gznSelectedArticleId === id) {
+      const panelOverlay = document.getElementById('gzn-panel-overlay');
+      if (panelOverlay) panelOverlay.innerHTML = html;
+    }
+  }
+
+  // Живое превью камеры: повторяет transform #camera из paper_pipeline/compose.mjs —
+  // «устоявшийся» кадр = scale 1.05*userScale, сдвиг x/y, origin по центру текстовой колонки.
+  function gznCamOriginPct(article) {
+    const layout = _gznGeomCache[article.template || '2'];
+    return layout ? ((layout.COL.left + layout.COL.width / 2) / 19.2) : 50;
+  }
+
+  function gznApplyCameraTo(overlayElId, article) {
+    const stage = document.getElementById(overlayElId.replace('overlay', 'stage'));
+    const cam = document.getElementById(overlayElId.replace('overlay', 'cam'));
+    if (!stage || !cam || !stage.clientWidth) return;
+    const s = article.settings || {};
+    const k = stage.clientWidth / 1920;
+    cam.style.transformOrigin = gznCamOriginPct(article) + '% 50%';
+    cam.style.transform = `translate(${(s.x || 0) * k}px, ${(s.y || 0) * k}px) scale(${1.05 * (s.scale ?? 1)})`;
+  }
+
+  function gznApplyCameraAll(articleId) {
+    const a = gznArticleFor(articleId);
+    if (!a) return;
+    gznApplyCameraTo('gzn-overlay-' + articleId, a);
+    if (_gznSelectedArticleId === articleId) gznApplyCameraTo('gzn-panel-overlay', a);
+    if (_gznModalArticleId === articleId) gznApplyCameraTo('gzn-modal-overlay', a);
+  }
+
+  function gznScaleOverlayEl(stageElId, overlayElId) {
+    const stage = document.getElementById(stageElId);
+    const overlayEl = document.getElementById(overlayElId);
+    if (!stage || !overlayEl || !stage.clientWidth) return;
+    overlayEl.style.transform = 'scale(' + (stage.clientWidth / 1920) + ')';
+  }
+
+  window.addEventListener('resize', () => {
+    (_gznState.articles || []).forEach(a => {
+      gznScaleOverlayEl('gzn-stage-' + a.id, 'gzn-overlay-' + a.id);
+      gznApplyCameraTo('gzn-overlay-' + a.id, a);
+    });
+    if (_gznModalArticleId) { gznScaleOverlayEl('gzn-modal-stage', 'gzn-modal-overlay'); gznApplyCameraAll(_gznModalArticleId); }
+    if (_gznSelectedArticleId) { gznScaleOverlayEl('gzn-panel-stage', 'gzn-panel-overlay'); gznApplyCameraAll(_gznSelectedArticleId); }
+  });
+
+  // ── Газеты · ноды: выбор статьи для правой панели превью ───────────────────
+  function gznSelectArticle(id) {
+    const article = (_gznState.articles || []).find(a => a.id === id);
+    if (!article) return;
+    _gznSelectedArticleId = id;
+    document.getElementById('gznPanelTitle').textContent = article.headline || article.name || id;
+    document.getElementById('gznPanelHint').textContent =
+      {previewed: 'превью готово', rendered: 'отрендерено', error: 'ошибка'}[article.status] || article.status || '';
+    document.getElementById('gznPanelRenderBtn').disabled = false;
+    document.getElementById('gznPanelRenderProgress').style.width = '0%';
+    gznMountInto('gzn-panel-lottie', 'gzn-panel-overlay', article).then(() => gznScaleOverlayEl('gzn-panel-stage', 'gzn-panel-overlay'));
+  }
+
+  function gznScheduleSave(id) {
+    clearTimeout(_gznSaveTimers[id]);
+    _gznSaveTimers[id] = setTimeout(() => gznSaveArticle(id), 600);
+  }
+
+  async function gznSaveArticle(id) {
+    const project = gznProject();
+    const a = (_gznState.articles || []).find(x => x.id === id);
+    if (!project || !a) return;
+    const payload = {
+      project, headline: a.headline, deck: a.deck,
+      source: a.source, kicker: a.kicker, template: a.template,
+      paragraphs: a.paragraphs, settings: a.settings,
+      headlineStyle: a.headlineStyle, textStyle: a.textStyle,
+    };
+    if (a.image) payload.image = a.image;
+    await post(`/api/gzn/article/${encodeURIComponent(id)}`, payload);
+  }
+
+  function gznUpdateField(id, field, value) {
+    const a = (_gznState.articles || []).find(x => x.id === id);
+    if (!a) return;
+    a[field] = value;
+    gznRefreshOverlayOnly(id);
+    gznScheduleSave(id);
+    if (field === 'headline') {
+      const ids = gznClusterNodeIds(id);
+      Object.values(ids).forEach(nodeId => {
+        const el = document.querySelector(`[data-node-id="${nodeId}"]`);
+        if (el) el.dataset.gznName = value.toLowerCase();
+      });
+      const titleEl = document.querySelector(`[data-node-id="${ids.main}"] .gzn-node-title`);
+      if (titleEl) { const t = value || 'Без заголовка'; titleEl.textContent = t; titleEl.title = t; }
+      gznApplySearch();
+      if (_gznSelectedArticleId === id) document.getElementById('gznPanelTitle').textContent = value || id;
+    }
+  }
+
+  function gznUpdateParagraphs(id, text) {
+    const a = (_gznState.articles || []).find(x => x.id === id);
+    if (!a) return;
+    a.paragraphs = text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
+    gznRefreshOverlayOnly(id);
+    gznScheduleSave(id);
+  }
+
+  function gznUpdateSetting(id, key, value) {
+    const a = (_gznState.articles || []).find(x => x.id === id);
+    if (!a) return;
+    a.settings = a.settings || {scale: 1, x: 0, y: 0, animate: true};
+    a.settings[key] = (key === 'animate') ? !!value : parseFloat(value);
+    gznApplyCameraAll(id);   // сразу показываем результат камеры в превью
+    gznScheduleSave(id);
+  }
+
+  function gznApplySearch() {
+    const q = (document.getElementById('gznSearch').value || '').trim().toLowerCase();
+    document.querySelectorAll('#gznChain [data-article-id]').forEach(g => {
+      g.classList.toggle('gzn-hidden', !(!q || (g.dataset.gznName || '').includes(q)));
+    });
+  }
+
+  async function gznAddLinks() {
+    const project = gznProject();
+    if (!project) return showToast('Выберите проект', 'error');
+    const text = document.getElementById('gznLinksText').value;
+    if (!text.trim()) return showToast('Добавьте хотя бы одну ссылку', 'error');
+    const r = await post('/api/gzn/queue/links', {project, text});
+    if (r.error) return showToast(r.error, 'error');
+    document.getElementById('gznLinksText').value = '';
+    _gznState = r.state;
+    gznRenderChain();
+    showToast(`Добавлено ссылок: ${r.added}`, 'success');
+  }
+
+  function gznOpenLinksModal() {
+    document.getElementById('gznLinksModalText').value = document.getElementById('gznLinksText').value;
+    document.getElementById('gznLinksModalOverlay').classList.add('open');
+  }
+  function gznCloseLinksModal() {
+    document.getElementById('gznLinksText').value = document.getElementById('gznLinksModalText').value;
+    document.getElementById('gznLinksModalOverlay').classList.remove('open');
+  }
+  async function gznAddLinksFromModal() {
+    document.getElementById('gznLinksText').value = document.getElementById('gznLinksModalText').value;
+    gznCloseLinksModal();
+    await gznAddLinks();
+  }
+
+  function gznCsvDragEnter(e) { e.preventDefault(); document.getElementById('gznCsvDrop').classList.add('dragover'); }
+  function gznCsvDragOver(e) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; document.getElementById('gznCsvDrop').classList.add('dragover'); }
+  function gznCsvDragLeave(e) { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('dragover'); }
+  async function gznCsvDrop(e) {
+    e.preventDefault();
+    document.getElementById('gznCsvDrop').classList.remove('dragover');
+    const file = (e.dataTransfer?.files || [])[0];
+    if (file) await gznUploadCsv(file);
+  }
+  async function gznCsvFileInput(input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (file) await gznUploadCsv(file);
+  }
+  async function gznUploadCsv(file) {
+    const project = gznProject();
+    if (!project) return showToast('Выберите проект', 'error');
+    const fd = new FormData();
+    fd.append('project', project);
+    fd.append('file', file);
+    let r;
+    try { r = await (await fetch('/api/gzn/queue/csv', {method: 'POST', body: fd})).json(); }
+    catch (e) { r = {error: e.message}; }
+    if (r.error) return showToast(r.error, 'error');
+    _gznState = r.state;
+    gznRenderChain();
+    showToast(`Добавлено ссылок из CSV: ${r.added}`, 'success');
+  }
+
+  function gznWaitForJob(onTick, onDone) {
+    clearInterval(_gznPollTimer);
+    _gznPollTimer = setInterval(async () => {
+      const s = await fetch('/api/status').then(r => r.json()).catch(() => null);
+      if (!s) return;
+      if (onTick) onTick(s);
+      if (!s.running) {
+        clearInterval(_gznPollTimer);
+        _gznPollTimer = null;
+        if (onDone) onDone(s);
+      }
+    }, 1000);
+  }
+
+  async function gznCreatePreviews() {
+    const project = gznProject();
+    if (!project) return showToast('Выберите проект', 'error');
+    const r = await post('/api/gzn/preview', {project});
+    if (r.error) return showToast(r.error, 'error');
+    startStreaming();
+    gznWaitForJob(
+      s => { document.getElementById('gznCreateProgress').style.width = (s.progress_percent || 0) + '%'; },
+      () => { document.getElementById('gznCreateProgress').style.width = '0%'; gznLoadState(); }
+    );
+  }
+
+  async function gznRenderOne(id) {
+    if (!id) return;
+    const project = gznProject();
+    if (!project) return showToast('Выберите проект', 'error');
+    const r = await post(`/api/gzn/render/${encodeURIComponent(id)}`, {project});
+    if (r.error) return showToast(r.error, 'error');
+    startStreaming();
+    gznWaitForJob(
+      s => {
+        const pct = (s.progress_percent || 0) + '%';
+        const modalBar = document.getElementById('gznModalRenderProgress');
+        if (modalBar) modalBar.style.width = pct;
+        const panelBar = document.getElementById('gznPanelRenderProgress');
+        if (panelBar) panelBar.style.width = pct;
+      },
+      async () => {
+        await gznLoadState();
+        const a = (_gznState.articles || []).find(x => x.id === id);
+        if (_gznModalArticleId === id && a) document.getElementById('gznModalStatus').textContent =
+          a.headline || a.name || {previewed: 'превью готово', rendered: 'отрендерено', error: 'ошибка'}[a.status] || '';
+        if (_gznSelectedArticleId === id) gznSelectArticle(id);
+      }
+    );
+  }
+
+  async function gznRenderAll() {
+    const project = gznProject();
+    if (!project) return showToast('Выберите проект', 'error');
+    const r = await post('/api/gzn/render_all', {project});
+    if (r.error) return showToast(r.error, 'error');
+    startStreaming();
+    gznWaitForJob(
+      s => { document.getElementById('gznRenderAllProgress').style.width = (s.progress_percent || 0) + '%'; },
+      () => { document.getElementById('gznRenderAllProgress').style.width = '0%'; gznLoadState(); }
+    );
+  }
+
+  // ── Газеты · ноды v2: нода Шаблон (выбор бумаги 2–5, один → много статей) ────
+  function gznAddTemplateNode(pos) {
+    if (!gznProject()) return showToast('Выберите проект', 'error');
+    const id = 'tpl' + Math.random().toString(36).slice(2, 9);
+    _gznTemplateNodes.push({ id, template: '2', targets: [] });
+    _gznNodePositions['template-' + id] = pos || gznCenterWorld();
+    gznRenderTemplateNodes();
+    gznScheduleSaveLayout();
+  }
+
+  function gznTemplateBodyHtml(node) {
+    const tiles = ['2', '3', '4', '5'].map(t =>
+      `<button class="gzn-tpl-tile ${node.template === t ? 'active' : ''}" onclick="event.stopPropagation();gznTemplateSet('${node.id}','${t}')">${t}</button>`).join('');
+    const n = (node.targets || []).length;
+    return `<div class="gzn-tpl-tiles">${tiles}</div>
+      <div class="gzn-hint">${n ? ('Статей: ' + n) : 'Потяните за точку справа на ноду Статья'}</div>`;
+  }
+
+  function gznTemplateNodeHtml(node) {
+    return `<div class="gzn-node-host" data-node-id="template-${node.id}">
+      <div class="gzn-node gzn-node-small gzn-node--transform">
+        <div class="gzn-node-head"><span>📄 Шаблон</span><span class="gzn-node-del" title="Удалить ноду" onclick="event.stopPropagation();gznDeleteTemplateNode('${node.id}')">✕</span></div>
+        <div class="gzn-node-body">${gznTemplateBodyHtml(node)}</div>
+      </div>
+      <span class="gzn-port gzn-port-out"></span>
+    </div>`;
+  }
+
+  function gznRenderTemplateNodes() {
+    const chain = document.getElementById('gznChain');
+    _gznTemplateNodes.forEach(node => {
+      const nodeId = 'template-' + node.id;
+      let el = document.querySelector(`[data-node-id="${nodeId}"]`);
+      if (!el) {
+        if (!_gznNodePositions[nodeId]) _gznNodePositions[nodeId] = gznCenterWorld();
+        const wrap = document.createElement('div'); wrap.innerHTML = gznTemplateNodeHtml(node);
+        el = wrap.firstElementChild; chain.appendChild(el);
+        gznPositionNode(nodeId); gznMakeDraggable(nodeId); gznObserveNode(nodeId); gznWireForNode(nodeId);
+      } else {
+        const body = el.querySelector('.gzn-node-body'); if (body) body.innerHTML = gznTemplateBodyHtml(node);
+      }
+    });
+    gznRecalcEdges();
+  }
+
+  // Смена шаблона меняет и текстовую геометрию, и саму «бумагу»: animation.json
+  // пересобирается на бэке (иначе в превью менялся бы только текст).
+  async function gznApplyTemplate(articleId, t) {
+    const a = gznArticleFor(articleId); if (!a) return;
+    a.template = t;
+    await gznRefreshOverlayOnly(articleId);      // вёрстка текста под новую геометрию — сразу
+    await gznSaveArticle(articleId);             // шаблон должен лежать в state.json до пересборки
+    const r = await post('/api/gzn/precompose/' + encodeURIComponent(articleId), { project: gznProject() });
+    if (r && r.error) return showToast(r.error, 'error');
+    _gznAnimVersion[articleId] = (_gznAnimVersion[articleId] || 0) + 1;
+    await gznMountStage(articleId);              // перечитать новую бумагу
+    if (_gznSelectedArticleId === articleId) gznSelectArticle(articleId);
+  }
+
+  async function gznTemplateSet(nodeId, t) {
+    const node = _gznTemplateNodes.find(n => n.id === nodeId); if (!node) return;
+    node.template = t;
+    gznRenderTemplateNodes();
+    gznScheduleSaveLayout();
+    for (const aid of (node.targets || [])) await gznApplyTemplate(aid, t);
+  }
+
+  async function gznTemplateAttach(nodeId, articleId) {
+    const node = _gznTemplateNodes.find(n => n.id === nodeId); if (!node) return;
+    node.targets = node.targets || [];
+    if (!node.targets.includes(articleId)) node.targets.push(articleId);
+    gznRenderTemplateNodes(); gznRecalcEdges(); gznScheduleSaveLayout();
+    await gznApplyTemplate(articleId, node.template);
+    showToast('Шаблон подключён', 'success');
+  }
+
+  function gznTemplateDetach(nodeId, articleId) {
+    const node = _gznTemplateNodes.find(n => n.id === nodeId); if (!node) return;
+    node.targets = (node.targets || []).filter(x => x !== articleId);
+    gznRenderTemplateNodes(); gznRecalcEdges(); gznScheduleSaveLayout();
+  }
+
+  function gznDeleteTemplateNode(nodeId) {
+    gznConfirmInNode('template-' + nodeId, 'Удалить ноду шаблона?', () => {
+      _gznTemplateNodes = _gznTemplateNodes.filter(n => n.id !== nodeId);
+      gznRemoveNodeEl('template-' + nodeId); gznRecalcEdges(); gznScheduleSaveLayout();
+    });
+  }
+
+  // ── Газеты · ноды v2: нода Камера/Анимация (scale/x/y/animate → article.settings) ─
+  function gznAddCameraNode(pos) {
+    if (!gznProject()) return showToast('Выберите проект', 'error');
+    const id = 'cam' + Math.random().toString(36).slice(2, 9);
+    _gznCameraNodes.push({ id, targets: [] });
+    _gznNodePositions['camera-' + id] = pos || gznCenterWorld();
+    gznRenderCameraNodes();
+    gznScheduleSaveLayout();
+  }
+
+  function gznCameraBodyHtml(node) {
+    const first = (node.targets || []).map(gznArticleFor).find(Boolean);
+    const s = (first && first.settings) || { scale: 1, x: 0, y: 0, animate: true };
+    const n = (node.targets || []).length;
+    return `<div class="gzn-hint">${n ? ('Статей: ' + n) : 'Потяните за точку справа на ноду Статья'}</div>
+      <div class="gzn-setting-row">Масштаб
+        <input type="range" min="0.5" max="2" step="0.01" value="${s.scale}" oninput="gznCameraSet('${node.id}','scale',this.value);this.nextElementSibling.textContent=(+this.value).toFixed(2)">
+        <span class="gzn-val">${(+s.scale).toFixed(2)}</span></div>
+      <div class="gzn-setting-row">Сдвиг X
+        <input type="range" min="-400" max="400" step="1" value="${s.x}" oninput="gznCameraSet('${node.id}','x',this.value)"></div>
+      <div class="gzn-setting-row">Сдвиг Y
+        <input type="range" min="-400" max="400" step="1" value="${s.y}" oninput="gznCameraSet('${node.id}','y',this.value)"></div>
+      <label class="gzn-setting-row" style="cursor:pointer"><input type="checkbox" ${s.animate ? 'checked' : ''} onchange="gznCameraSet('${node.id}','animate',this.checked)"> Анимация</label>`;
+  }
+
+  function gznCameraNodeHtml(node) {
+    return `<div class="gzn-node-host" data-node-id="camera-${node.id}">
+      <div class="gzn-node gzn-node-small gzn-node--transform">
+        <div class="gzn-node-head"><span>🎥 Камера</span><span class="gzn-node-del" title="Удалить ноду" onclick="event.stopPropagation();gznDeleteCameraNode('${node.id}')">✕</span></div>
+        <div class="gzn-node-body">${gznCameraBodyHtml(node)}</div>
+      </div>
+      <span class="gzn-port gzn-port-out"></span>
+    </div>`;
+  }
+
+  function gznRenderCameraNodes() {
+    const chain = document.getElementById('gznChain');
+    _gznCameraNodes.forEach(node => {
+      const nodeId = 'camera-' + node.id;
+      let el = document.querySelector(`[data-node-id="${nodeId}"]`);
+      if (!el) {
+        if (!_gznNodePositions[nodeId]) _gznNodePositions[nodeId] = gznCenterWorld();
+        const wrap = document.createElement('div'); wrap.innerHTML = gznCameraNodeHtml(node);
+        el = wrap.firstElementChild; chain.appendChild(el);
+        gznPositionNode(nodeId); gznMakeDraggable(nodeId); gznObserveNode(nodeId); gznWireForNode(nodeId);
+      } else {
+        const body = el.querySelector('.gzn-node-body'); if (body && document.activeElement.tagName !== 'INPUT') body.innerHTML = gznCameraBodyHtml(node);
+      }
+    });
+    gznRecalcEdges();
+  }
+
+  function gznCameraSet(nodeId, key, value) {
+    const node = _gznCameraNodes.find(n => n.id === nodeId); if (!node) return;
+    (node.targets || []).forEach(aid => gznUpdateSetting(aid, key, value));
+  }
+
+  function gznCameraAttach(nodeId, articleId) {
+    const node = _gznCameraNodes.find(n => n.id === nodeId); if (!node) return;
+    node.targets = node.targets || [];
+    if (!node.targets.includes(articleId)) node.targets.push(articleId);
+    gznRenderCameraNodes(); gznRecalcEdges(); gznScheduleSaveLayout();
+    showToast('Камера подключена', 'success');
+  }
+
+  function gznCameraDetach(nodeId, articleId) {
+    const node = _gznCameraNodes.find(n => n.id === nodeId); if (!node) return;
+    node.targets = (node.targets || []).filter(x => x !== articleId);
+    gznRenderCameraNodes(); gznRecalcEdges(); gznScheduleSaveLayout();
+  }
+
+  function gznDeleteCameraNode(nodeId) {
+    gznConfirmInNode('camera-' + nodeId, 'Удалить ноду камеры?', () => {
+      _gznCameraNodes = _gznCameraNodes.filter(n => n.id !== nodeId);
+      gznRemoveNodeEl('camera-' + nodeId); gznRecalcEdges(); gznScheduleSaveLayout();
+    });
+  }
+
+  // ── Газеты · ноды v2: нода Заметка (стикер, без связей) ──────────────────────
+  function gznAddNoteNode(pos) {
+    if (!gznProject()) return showToast('Выберите проект', 'error');
+    const id = 'note' + Math.random().toString(36).slice(2, 9);
+    _gznNoteNodes.push({ id, text: '' });
+    _gznNodePositions['note-' + id] = pos || gznCenterWorld();
+    gznRenderNoteNodes();
+    gznScheduleSaveLayout();
+  }
+
+  function gznNoteNodeHtml(node) {
+    return `<div class="gzn-node-host gzn-note-host" data-node-id="note-${node.id}">
+      <div class="gzn-node gzn-node--note">
+        <div class="gzn-node-head"><span>📝 Заметка</span><span class="gzn-node-del" title="Удалить" onclick="event.stopPropagation();gznDeleteNoteNode('${node.id}')">✕</span></div>
+        <div class="gzn-node-body"><div class="gzn-note-text" contenteditable="true" oninput="gznNoteSet('${node.id}',this.innerText)">${_gznEsc(node.text || '')}</div></div>
+      </div>
+    </div>`;
+  }
+
+  function gznRenderNoteNodes() {
+    const chain = document.getElementById('gznChain');
+    _gznNoteNodes.forEach(node => {
+      const nodeId = 'note-' + node.id;
+      if (document.querySelector(`[data-node-id="${nodeId}"]`)) return;
+      if (!_gznNodePositions[nodeId]) _gznNodePositions[nodeId] = gznCenterWorld();
+      const wrap = document.createElement('div'); wrap.innerHTML = gznNoteNodeHtml(node);
+      chain.appendChild(wrap.firstElementChild);
+      gznPositionNode(nodeId); gznMakeDraggable(nodeId); gznObserveNode(nodeId);
+    });
+  }
+
+  function gznNoteSet(nodeId, text) {
+    const node = _gznNoteNodes.find(n => n.id === nodeId); if (node) node.text = text;
+    gznScheduleSaveLayout();
+  }
+
+  function gznDeleteNoteNode(nodeId) {
+    gznConfirmInNode('note-' + nodeId, 'Удалить заметку?', () => {
+      _gznNoteNodes = _gznNoteNodes.filter(n => n.id !== nodeId);
+      gznRemoveNodeEl('note-' + nodeId); gznScheduleSaveLayout();
+    });
+  }
+
+  // ── Газеты · ноды v2: меню добавления нод (правый клик / кнопка «＋ Нода») ────
+  const GZN_NODE_TYPES = [
+    { ico: '⚙', name: 'Настройки', desc: 'шрифт · цвет · картинка', add: gznAddSettingsNode },
+    { ico: '📄', name: 'Шаблон', desc: 'бумага 2–5', add: gznAddTemplateNode },
+    { ico: '🎥', name: 'Камера', desc: 'масштаб · сдвиг · анимация', add: gznAddCameraNode },
+    { ico: '📝', name: 'Заметка', desc: 'стикер', add: gznAddNoteNode },
+  ];
+  let _gznAddMenuAt = null;
+
+  function gznInitAddMenu() {
+    if (document.getElementById('gznAddMenu').dataset.init) return;
+    document.getElementById('gznAddMenu').dataset.init = '1';
+    gznRenderAddMenuList('');
+    document.addEventListener('pointerdown', e => {
+      const menu = document.getElementById('gznAddMenu');
+      if (menu && menu.classList.contains('open') && !menu.contains(e.target) && !(e.target.closest('button') && /gznOpenAddMenu/.test(e.target.closest('button').getAttribute('onclick') || ''))) {
+        menu.classList.remove('open');
+      }
+    });
+    const vp = document.getElementById('gznViewport');
+    if (vp) vp.addEventListener('contextmenu', e => {
+      if (e.target.closest('.gzn-node-host')) return;
+      e.preventDefault();
+      gznOpenAddMenuAt(e.clientX, e.clientY);
+    });
+  }
+
+  function gznRenderAddMenuList(q) {
+    const list = document.getElementById('gznAddMenuList');
+    if (!list) return;
+    const ql = (q || '').toLowerCase();
+    const items = GZN_NODE_TYPES.map((t, i) => ({ t, i })).filter(({ t }) => !ql || t.name.toLowerCase().includes(ql) || t.desc.toLowerCase().includes(ql));
+    list.innerHTML = items.map(({ t, i }) =>
+      `<div class="gzn-addmenu-item" data-i="${i}"><span class="gzn-am-ico">${t.ico}</span><span>${t.name}<span class="gzn-am-desc">${t.desc}</span></span></div>`).join('')
+      || '<div class="gzn-hint" style="padding:6px">Ничего не найдено</div>';
+    Array.from(list.querySelectorAll('.gzn-addmenu-item')).forEach(el => el.addEventListener('click', () => {
+      document.getElementById('gznAddMenu').classList.remove('open');
+      const t = GZN_NODE_TYPES[+el.dataset.i];
+      if (t) t.add(_gznAddMenuAt);
+    }));
+  }
+
+  function gznAddMenuFilter(q) { gznRenderAddMenuList(q); }
+
+  function gznOpenAddMenu(e) {
+    const btn = (e && (e.currentTarget || e.target)) || null;
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    gznOpenAddMenuAt(r.left, r.bottom + 4);
+  }
+
+  function gznOpenAddMenuAt(clientX, clientY) {
+    const menu = document.getElementById('gznAddMenu');
+    const vp = document.getElementById('gznViewport');
+    const vr = vp.getBoundingClientRect();
+    _gznAddMenuAt = { x: (clientX - vr.left - _gznCanvas.panX) / _gznCanvas.zoom, y: (clientY - vr.top - _gznCanvas.panY) / _gznCanvas.zoom };
+    const host = menu.offsetParent || document.body;
+    const hr = host.getBoundingClientRect();
+    menu.style.left = Math.max(4, clientX - hr.left) + 'px';
+    menu.style.top = Math.max(4, clientY - hr.top) + 'px';
+    menu.classList.add('open');
+    const s = document.getElementById('gznAddMenuSearch');
+    s.value = ''; gznRenderAddMenuList(''); setTimeout(() => s.focus(), 0);
+  }
+
+  // ── Газеты · ноды v2: минимапа ──────────────────────────────────────────────
+  let _gznMiniBounds = null;
+
+  function gznInitMinimap() {
+    const c = document.getElementById('gznMinimapCanvas');
+    if (!c || c.dataset.init) return;
+    c.dataset.init = '1';
+    c.addEventListener('click', e => {
+      if (!_gznMiniBounds) return;
+      const rect = c.getBoundingClientRect();
+      const b = _gznMiniBounds;
+      const worldX = b.minX + ((e.clientX - rect.left) / rect.width) * (b.maxX - b.minX);
+      const worldY = b.minY + ((e.clientY - rect.top) / rect.height) * (b.maxY - b.minY);
+      const vp = document.getElementById('gznViewport');
+      const vr = vp.getBoundingClientRect();
+      _gznCanvas.panX = vr.width / 2 - worldX * _gznCanvas.zoom;
+      _gznCanvas.panY = vr.height / 2 - worldY * _gznCanvas.zoom;
+      gznAnimateCanvasTransform(); gznScheduleSaveLayout();
+    });
+  }
+
+  function gznDrawMinimap() {
+    const c = document.getElementById('gznMinimapCanvas');
+    if (!c || !c.getContext) return;
+    const ctx = c.getContext('2d');
+    const W = c.width, H = c.height;
+    ctx.clearRect(0, 0, W, H);
+    const ids = Object.keys(_gznNodePositions).filter(id => document.querySelector(`[data-node-id="${id}"]`));
+    if (!ids.length) { _gznMiniBounds = null; return; }
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    const boxes = ids.map(id => {
+      const p = _gznNodePositions[id];
+      const el = document.querySelector(`[data-node-id="${id}"]`);
+      const w = (el && el.offsetWidth) || 200, h = _gznNodeSizeCache[id] || (el && el.offsetHeight) || 80;
+      minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x + w); maxY = Math.max(maxY, p.y + h);
+      return { x: p.x, y: p.y, w, h };
+    });
+    const vp = document.getElementById('gznViewport');
+    const vr = vp.getBoundingClientRect();
+    const viewX = -_gznCanvas.panX / _gznCanvas.zoom, viewY = -_gznCanvas.panY / _gznCanvas.zoom;
+    const viewW = vr.width / _gznCanvas.zoom, viewH = vr.height / _gznCanvas.zoom;
+    minX = Math.min(minX, viewX); minY = Math.min(minY, viewY); maxX = Math.max(maxX, viewX + viewW); maxY = Math.max(maxY, viewY + viewH);
+    const pad = 40; minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    _gznMiniBounds = { minX, minY, maxX, maxY };
+    const s = Math.min(W / (maxX - minX), H / (maxY - minY));
+    const ox = (W - (maxX - minX) * s) / 2, oy = (H - (maxY - minY) * s) / 2;
+    const tx = v => ox + (v - minX) * s, ty = v => oy + (v - minY) * s;
+    ctx.fillStyle = 'rgba(130,140,160,.55)';
+    boxes.forEach(b => ctx.fillRect(tx(b.x), ty(b.y), Math.max(2, b.w * s), Math.max(2, b.h * s)));
+    ctx.strokeStyle = 'rgba(120,140,255,.9)'; ctx.lineWidth = 1;
+    ctx.strokeRect(tx(viewX), ty(viewY), viewW * s, viewH * s);
+  }
 </script>
 </body>
 </html>

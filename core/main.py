@@ -1510,6 +1510,13 @@ SCRIPT_TASKS = [
         "continue_on_error": True,
     },
     {
+        "id": "photo_filmstrip",
+        "title": "Собрать плёнку с фото (B1-B5, B6-B10, ...)",
+        "script": "photo_filmstrip.py",
+        "needs_project": True,
+        "continue_on_error": True,
+    },
+    {
         "id": "photo_placeholders",
         "title": "Создать video placeholders из фото",
         "script": "5_photo_placeholders.py",
@@ -1553,6 +1560,7 @@ FLOW_STEP_CATALOG = [
     {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео", "script_id": "pulltube_rename"},
     {"id": "motionarray_rename", "kind": "script", "title": "Переименовать MotionArray видео", "script_id": "motionarray_rename"},
     {"id": "smart_cropping", "kind": "script", "title": "Кроп 16:9", "script_id": "smart_cropping"},
+    {"id": "photo_filmstrip", "kind": "script", "title": "Собрать плёнку с фото (B1-B5, B6-B10, ...)", "script_id": "photo_filmstrip"},
     {"id": "photo_placeholders", "kind": "script", "title": "Создать video placeholders из фото", "script_id": "photo_placeholders"},
     {"id": "screenshots", "kind": "script", "title": "Скриншоты other links", "script_id": "screenshots"},
 ]

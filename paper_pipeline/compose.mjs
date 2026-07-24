@@ -10,7 +10,8 @@
 // Font: SF Pro Text. Renders to a QuickTime .mov with alpha.
 //
 // Usage (after Paper/shot.mjs):
-//   node Paper/compose.mjs --slug <slug> [--template 2|3|4|5] [--title "…"] [--accent "#e8352e"]
+//   node Paper/compose.mjs --slug <slug> [--template 2|3|4|5] [--title "…"] [--accent "#FC3026"]
+//     [--scale 1] [--x 0] [--y 0] [--animate true|false]
 
 import fs from "node:fs";
 import path from "node:path";
@@ -30,7 +31,30 @@ if (!slug) {
   console.error("usage: node Paper/compose.mjs --slug <slug> [--template 2-5] [--title ...] [--accent #hex]");
   process.exit(1);
 }
-const accent = arg("accent", "#e8352e");
+// доп. трансформация камеры поверх встроенной анимации compose.mjs (Газеты · ноды, нода "настройки")
+const userScale = parseFloat(arg("scale", "1")) || 1;
+const userX = parseFloat(arg("x", "0")) || 0;
+const userY = parseFloat(arg("y", "0")) || 0;
+const animate = arg("animate", "true") !== "false";
+
+// Разложенный граф (Газеты · ноды): стили заголовка/текста + опциональная floated-картинка,
+// приходят из нод "Заголовок"/"Текст"/"Картинка" + подключённых к ним нод "Настройки".
+const FONT_WEIGHT = { "SFProText-Heavy": 800, "SFProText-Bold": 700, "SFProText-Semibold": 600, "SFProText-Light": 300 };
+const headlineColor = arg("headline-color", arg("accent", "#FC3026"));
+const headlineFont = arg("headline-font", "SFProText-Heavy");
+const headlineWeight = FONT_WEIGHT[headlineFont] || 800;
+const headlineSize = parseFloat(arg("headline-size", "1")) || 1;
+const textFont = arg("text-font", "SFProText-Light");
+const textWeight = FONT_WEIGHT[textFont] || 300;
+const textSize = parseFloat(arg("text-size", "1")) || 1;
+const textColor = arg("text-color", "#221e18");
+const imagePath = arg("image", "");
+const imageExt = imagePath ? path.extname(imagePath) || ".jpg" : "";
+const imageScale = Math.min(0.65, Math.max(0.35, parseFloat(arg("image-scale", "0.45")) || 0.45));
+const imageOffsetX = parseFloat(arg("image-offset-x", "0")) || 0;
+const imageOffsetY = parseFloat(arg("image-offset-y", "0")) || 0;
+const imageAnchor = parseInt(arg("image-anchor", "0"), 10) || 0;
+const imageSide = arg("image-side", "left") === "right" ? "right" : "left";
 
 // ---- template rotation 2→3→4→5→2… (only when --template omitted) ----------
 const ORDER = ["2", "3", "4", "5"];
@@ -69,6 +93,9 @@ const headline = arg("title", c.headline) || slug;
 
 fs.mkdirSync(imagesDir, { recursive: true });
 fs.mkdirSync(fontsDir, { recursive: true });
+if (imagePath && fs.existsSync(imagePath)) {
+  fs.copyFileSync(imagePath, path.join(imagesDir, `attachment${imageExt}`));
+}
 
 // ---- edit the Lottie template into a clean, motion-neutral torn paper ------
 // Freeze every animated null at its settled value = the value of the last
@@ -191,10 +218,62 @@ function bodyHtml() {
   const key = (s) => String(s).replace(/[«»"'`]/g, "").replace(/\s+/g, " ").trim().slice(0, 70).toLowerCase();
   const deckKey = key(c.deck || "");
   const paras = (c.paragraphs || []).filter((p) => key(p) !== deckKey); // drop the deck echo
-  return paras.slice(0, 9).map((p) => `<p class="body-p">${esc(p)}</p>`).join("\n            ");
+  const bodyParas = paras.slice(0, 9);
+  const imgHtml = imagePath
+    ? `<div class="inline-image inline-image-${imageSide}"><img src="images/attachment${imageExt}" style="object-position:${50 + imageOffsetX}% ${50 + imageOffsetY}%"></div>`
+    : "";
+  const idx = imagePath ? Math.max(0, Math.min(bodyParas.length, imageAnchor)) : -1;
+  return bodyParas
+    .map((p, i) => `${i === idx ? imgHtml : ""}<p class="body-p">${esc(p)}</p>`)
+    .join("\n            ") + (idx >= bodyParas.length ? imgHtml : "");
 }
 
 function html() {
+  const camScaleIn = 0.95 * userScale;
+  const camScaleOut = 1.05 * userScale;
+  const revealScript = animate ? `
+      const anim = gsap.timeline({ paused:true });
+
+      gsap.set("#group", { x:${MOTION.in.x}, y:${MOTION.in.y} });
+      gsap.set("#camera", { scale:${camScaleIn}, x:${userX}, y:${userY} });
+      gsap.set(".kicker", { opacity:0, y:14 });
+      gsap.set("h1.headline .w > span", { yPercent:115 });
+      gsap.set(".hl", { scaleX:0 });
+      gsap.set(".under", { scaleX:0 });
+      gsap.set(".deck, .body-p, .inline-image", { opacity:0, y:12 });
+
+      // 1) появляется в рваной бумаге
+      anim.to("#group", { x:0, y:0, duration:0.55, ease:"power3.out" }, 0.0);
+      // 2) приближается
+      anim.to("#camera", { scale:${camScaleOut}, duration:2.3, ease:"power2.out" }, 0.5);
+      // 3) заголовок появляется во время движения бумаги (не после)
+      anim.to(".kicker", { opacity:1, y:0, duration:0.35 }, 0.05);
+      anim.to(".hl", { scaleX:1, duration:0.4, ease:"power3.inOut" }, 0.1);
+      anim.to("h1.headline .w > span", { yPercent:0, duration:0.4, ease:"power3.out", stagger:0.03 }, 0.15);
+      // 4) подчёркивание — сразу как бумага долетела (0.55s = конец движения)
+      anim.to(".under", { scaleX:1, duration:0.4, ease:"power2.out" }, 0.55);
+      anim.to(".deck, .body-p, .inline-image", { opacity:1, y:0, duration:0.5, stagger:0.04 }, 0.9);
+      // 5) небольшой скрол — дистанция считается лениво (после загрузки фото),
+      //    иначе scrollHeight занижен и скролла не будет (баг на широких шаблонах)
+      const scroll = document.getElementById("scroll");
+      anim.to(scroll, {
+        y: () => -Math.min(Math.max(0, scroll.scrollHeight - 1080), 620),
+        duration:2.8, ease:"power1.inOut",
+      }, 3.0);
+      // 6) уезжает
+      anim.to("#group", { x:${MOTION.out.x}, y:${MOTION.out.y}, duration:0.6, ease:"power2.in" }, 8.2);
+` : `
+      // animate=false ("Animate?" в ноде настроек): статичный кадр — всё сразу
+      // в конечном видимом состоянии, камера/группа без движения
+      const anim = gsap.timeline({ paused:true });
+      gsap.set("#group", { x:0, y:0 });
+      gsap.set("#camera", { scale:${camScaleOut}, x:${userX}, y:${userY} });
+      gsap.set(".kicker", { opacity:1, y:0 });
+      gsap.set("h1.headline .w > span", { yPercent:0 });
+      gsap.set(".hl", { scaleX:1 });
+      gsap.set(".under", { scaleX:1 });
+      gsap.set(".deck, .body-p, .inline-image", { opacity:1, y:0 });
+`;
   return `<!doctype html>
 <html lang="ru"><head><meta charset="UTF-8" /><title>${esc(headline)}</title>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
@@ -217,16 +296,20 @@ function html() {
     mask-image:url("assets/paper-mask.png"); mask-size:1920px 1080px; mask-repeat:no-repeat; mask-position:0 0; }
   #scroll { position:absolute; left:${COL.left}px; top:0; width:${COL.width}px; padding:${COL.padTop}px 0 ${COL.padBot}px; }
 
-  .kicker { font-weight:700; font-size:${FS.kicker}px; letter-spacing:2.5px; text-transform:uppercase; color:${accent}; margin-bottom:20px; display:flex; gap:12px; align-items:center; }
-  .kicker .rule { flex:0 0 50px; height:6px; background:${accent}; }
+  .kicker { font-weight:700; font-size:${FS.kicker}px; letter-spacing:2.5px; text-transform:uppercase; color:${headlineColor}; margin-bottom:20px; display:flex; gap:12px; align-items:center; }
+  .kicker .rule { flex:0 0 50px; height:6px; background:${headlineColor}; }
   .head-wrap { position:relative; display:inline-block; padding:1px 12px 8px 0; }
-  .hl { position:absolute; left:-9px; top:2px; right:-4px; bottom:7px; background:#ff8c00; transform:scaleX(0); transform-origin:left center; z-index:0; }
-  h1.headline { position:relative; z-index:1; margin:0; font-weight:800; font-size:${FS.headline}px; line-height:1.04; letter-spacing:-1.5px; color:#17140f; }
+  .hl { position:absolute; left:-9px; top:2px; right:-4px; bottom:7px; background:${headlineColor}; transform:scaleX(0); transform-origin:left center; z-index:0; }
+  h1.headline { position:relative; z-index:1; margin:0; font-weight:${headlineWeight}; font-size:${Math.round(FS.headline * headlineSize)}px; line-height:1.04; letter-spacing:-1.5px; color:#17140f; }
   h1.headline .w { display:inline-block; overflow:hidden; vertical-align:top; }
   h1.headline .w > span { display:inline-block; }
-  .under { height:${Math.max(7, Math.round(11 * K))}px; width:100%; background:#17140f; transform:scaleX(0); transform-origin:left center; margin:18px 0 26px; }
+  .under { height:${Math.max(7, Math.round(11 * K))}px; width:100%; background:${headlineColor}; transform:scaleX(0); transform-origin:left center; margin:18px 0 26px; }
   .deck { font-weight:300; font-size:${FS.deck}px; line-height:1.3; color:#3b342a; margin:0 0 28px; }
-  .body-p { font-weight:300; font-size:${FS.body}px; line-height:1.5; color:#221e18; margin:0 0 22px; }
+  .body-p { font-weight:${textWeight}; font-size:${Math.round(FS.body * textSize)}px; line-height:1.5; color:${textColor}; margin:0 0 22px; }
+  .inline-image { width:${Math.round(imageScale * 100)}%; overflow:hidden; border-radius:4px; }
+  .inline-image img { display:block; width:100%; height:100%; object-fit:cover; aspect-ratio:4/3; }
+  .inline-image-left { float:left; margin:4px 24px 14px 0; }
+  .inline-image-right { float:right; margin:4px 0 14px 24px; }
 </style></head>
 <body>
   <div id="stage" data-composition-id="main-video" data-width="1920" data-height="1080" data-start="0" data-duration="${DUR}">
@@ -247,37 +330,7 @@ function html() {
 
       // inner timeline = the real animation; outer timeline quantizes it to
       // ${STEP_FPS} steps/sec for a subtle stop-motion feel (seek-safe)
-      const anim = gsap.timeline({ paused:true });
-
-      gsap.set("#group", { x:${MOTION.in.x}, y:${MOTION.in.y} });
-      gsap.set("#camera", { scale:0.95 });
-      gsap.set(".kicker", { opacity:0, y:14 });
-      gsap.set("h1.headline .w > span", { yPercent:115 });
-      gsap.set(".hl", { scaleX:0 });
-      gsap.set(".under", { scaleX:0 });
-      gsap.set(".deck, .body-p", { opacity:0, y:12 });
-
-      // 1) появляется в рваной бумаге
-      anim.to("#group", { x:0, y:0, duration:0.55, ease:"power3.out" }, 0.0);
-      // 2) приближается
-      anim.to("#camera", { scale:1.05, duration:2.3, ease:"power2.out" }, 0.5);
-      // 3) заголовок появляется во время движения бумаги (не после)
-      anim.to(".kicker", { opacity:1, y:0, duration:0.35 }, 0.05);
-      anim.to(".hl", { scaleX:1, duration:0.4, ease:"power3.inOut" }, 0.1);
-      anim.to("h1.headline .w > span", { yPercent:0, duration:0.4, ease:"power3.out", stagger:0.03 }, 0.15);
-      // 4) подчёркивание — сразу как бумага долетела (0.55s = конец движения)
-      anim.to(".under", { scaleX:1, duration:0.4, ease:"power2.out" }, 0.55);
-      anim.to(".deck, .body-p", { opacity:1, y:0, duration:0.5, stagger:0.04 }, 0.9);
-      // 5) небольшой скрол — дистанция считается лениво (после загрузки фото),
-      //    иначе scrollHeight занижен и скролла не будет (баг на широких шаблонах)
-      const scroll = document.getElementById("scroll");
-      anim.to(scroll, {
-        y: () => -Math.min(Math.max(0, scroll.scrollHeight - 1080), 620),
-        duration:2.8, ease:"power1.inOut",
-      }, 3.0);
-      // 6) уезжает
-      anim.to("#group", { x:${MOTION.out.x}, y:${MOTION.out.y}, duration:0.6, ease:"power2.in" }, 8.2);
-
+      ${revealScript}
       // stop-motion driver: HyperFrames seeks tl; tl snaps anim to ${STEP_FPS}fps grid
       const STEP = 1 / ${STEP_FPS};
       const tl = gsap.timeline({ paused:true });

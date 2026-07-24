@@ -118,7 +118,28 @@ try {
     }
     paragraphs = [...new Set(paragraphs)].slice(0, 12);
 
-    return { source, kicker, headline, deck, paragraphs };
+    // лид-картинка: og:image / twitter:image, иначе самая крупная картинка в теле
+    let imageUrl = meta('meta[property="og:image"]') || meta('meta[property="og:image:url"]')
+      || meta('meta[name="twitter:image"]') || meta('meta[name="twitter:image:src"]');
+    if (!imageUrl) {
+      let best = null, bestArea = 0;
+      for (const sel of containers) {
+        const root = document.querySelector(sel);
+        if (!root) continue;
+        for (const img of root.querySelectorAll("img")) {
+          const w = img.naturalWidth || img.width || 0;
+          const h = img.naturalHeight || img.height || 0;
+          const src = img.currentSrc || img.src || "";
+          if (!src || src.startsWith("data:") || w < 400 || h < 250) continue;
+          if (w * h > bestArea) { bestArea = w * h; best = src; }
+        }
+        if (best) break;
+      }
+      imageUrl = best || "";
+    }
+    try { imageUrl = imageUrl ? new URL(imageUrl, location.href).href : ""; } catch { imageUrl = ""; }
+
+    return { source, kicker, headline, deck, paragraphs, imageUrl };
   });
 
   // retry once if the first extract hit a redirect (destroyed context)
@@ -143,6 +164,7 @@ try {
   console.log(`  source:   ${data.source}${data.kicker ? " / " + data.kicker : ""}`);
   console.log(`  headline: ${data.headline}`);
   console.log(`  paras:    ${data.paragraphs.length}`);
+  console.log(`  image:    ${data.imageUrl || "(нет)"}`);
 } finally {
   await browser.close();
 }
