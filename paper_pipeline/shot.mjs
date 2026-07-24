@@ -27,7 +27,29 @@ if (!url || !slug) {
   process.exit(1);
 }
 
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// Путь к Chrome: сначала CHROME_PATH (ставит core/main.py по find_chrome_for_puppeteer()),
+// иначе перебор стандартных путей по платформе — без хардкода одного пути.
+function findChrome() {
+  if (process.env.CHROME_PATH && fs.existsSync(process.env.CHROME_PATH)) return process.env.CHROME_PATH;
+  const candidates = {
+    darwin: [
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ],
+    win32: [
+      "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+      "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+    ],
+    linux: ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"],
+  }[process.platform] || [];
+  return candidates.find((p) => fs.existsSync(p)) || null;
+}
+const CHROME = findChrome();
+if (!CHROME) {
+  console.error("Chrome не найден. Установите Google Chrome или задайте CHROME_PATH=/путь/к/chrome");
+  process.exit(1);
+}
+
 const outDir = path.join(PAPER, "renders", slug, "source");
 fs.mkdirSync(outDir, { recursive: true });
 

@@ -8,8 +8,6 @@ import sys
 from pathlib import Path
 
 
-FRAME_W = 1920
-FRAME_H = 1080
 REALESRGAN_RUNTIME_DEPS = [
     "basicsr>=1.4.2",
     "numpy<2",
@@ -88,100 +86,6 @@ else:
     print(f"Torchvision shim OK: {legacy}")
 """
     subprocess.run([python_executable, "-c", shim_code], check=True)
-
-
-def find_source_image(src_dir: Path, name: str) -> Path | None:
-    for ext in (".jpg", ".jpeg", ".png"):
-        path = src_dir / f"{name}{ext}"
-        if path.exists():
-            return path
-    return None
-
-
-def clamp_transform(zoom: float, x_off: int, y_off: int) -> tuple[float, int, int]:
-    zoom = min(3.0, max(0.25, float(zoom)))
-    width = round(FRAME_W * zoom)
-    height = round(FRAME_H * zoom)
-    max_x = round((width + FRAME_W) / 2) - 1
-    max_y = round((height + FRAME_H) / 2) - 1
-    x = max(-max_x, min(int(x_off), max_x))
-    y = max(-max_y, min(int(y_off), max_y))
-    return zoom, x, y
-
-
-def clamp_duration(duration) -> int:
-    """Длительность плейсхолдера в секундах: одно из 5/10/15/20."""
-    try:
-        value = int(round(float(duration)))
-    except (TypeError, ValueError):
-        return 10
-    allowed = (5, 10, 15, 20)
-    if value in allowed:
-        return value
-    return min(allowed, key=lambda option: abs(option - value))
-
-
-def build_placeholder_render_cmd(
-    image_path: Path,
-    output_path: Path,
-    base_dir: Path,
-    zoom: float = 1.0,
-    x_off: int = 0,
-    y_off: int = 0,
-    duration: int = 10,
-) -> list[str]:
-    scratches_path = Path(base_dir) / "assets" / "scratches_add.mp4"
-    alpha_mask_path = Path(base_dir) / "assets" / "alpha_mask.mp4"
-
-    if not scratches_path.exists():
-        raise FileNotFoundError(f"Файл царапин не найден: {scratches_path}")
-    if not alpha_mask_path.exists():
-        raise FileNotFoundError(f"Файл маски не найден: {alpha_mask_path}")
-
-    zoom, x_off, y_off = clamp_transform(zoom, x_off, y_off)
-    duration = clamp_duration(duration)
-    width = round(FRAME_W * zoom)
-    height = round(FRAME_H * zoom)
-
-    flt = (
-        f"color=c=black:s={FRAME_W}x{FRAME_H}:d={duration}[canvas];"
-        f"[0:v]scale={width}:{height}:flags=lanczos,setsar=1[scaled];"
-        f"[canvas][scaled]overlay="
-        f"{(FRAME_W - width) // 2 + x_off}:{(FRAME_H - height) // 2 + y_off}[bg];"
-        f"[1:v]negate,colorkey=white:0.1:0.0[scratches_transparent];"
-        f"[2:v]format=gray,lut=y='if(gte(val\\,128)\\,255\\,0)',negate[alpha_mask];"
-        f"[bg][scratches_transparent]overlay=0:0[with_scratches];"
-        f"[with_scratches][alpha_mask]alphamerge[final]"
-    )
-
-    return [
-        "ffmpeg",
-        "-y",
-        "-nostdin",
-        "-loop",
-        "1",
-        "-i",
-        str(image_path),
-        "-i",
-        str(scratches_path),
-        "-i",
-        str(alpha_mask_path),
-        "-filter_complex",
-        flt,
-        "-map",
-        "[final]",
-        "-c:v",
-        "prores_ks",
-        "-profile:v",
-        "4444",
-        "-pix_fmt",
-        "yuva444p10le",
-        "-r",
-        "25",
-        "-t",
-        str(duration),
-        str(output_path),
-    ]
 
 
 def build_realesrgan_cmd(

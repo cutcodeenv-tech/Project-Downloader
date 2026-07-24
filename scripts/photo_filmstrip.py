@@ -41,6 +41,7 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir
+import manifest
 
 _BASE_DIR = _get_base_dir(__file__)
 _DATA_DIR = _get_data_dir(__file__)
@@ -242,6 +243,12 @@ def main() -> int:
     print(f"📥 Источник: {input_dir}")
     print(f"📁 Найдено фото: {len(photos)} -> {len(blocks)} блоков сценария -> {len(pages)} плёнок")
 
+    # Устаревшие (фото в блоке заменили/добавили после сборки) пересобираем
+    # заодно с недостающими — манифест хранит, какие именно фото вошли в плёнку.
+    stale_removed = manifest.clear_stale(output_dir, "B*_p*.jpg")
+    if stale_removed:
+        print(f"♻️  Устарело (фото изменились) — пересоберу: {len(stale_removed)}")
+
     todo = [(block_id, page_idx, chunk) for block_id, page_idx, chunk in pages
             if not os.path.exists(os.path.join(output_dir, f"B{block_id}_p{page_idx}.jpg"))]
     done_count = len(pages) - len(todo)
@@ -257,6 +264,7 @@ def main() -> int:
     for i, (block_id, page_idx, chunk) in enumerate(pages_to_run, start=1):
         output_path = os.path.join(output_dir, f"B{block_id}_p{page_idx}.jpg")
         compose_page(args.template, chunk, output_path, texture_path=texture_path)
+        manifest.write_manifest(output_path, chunk)
         print(f"  [{i}/{len(pages_to_run)}] ✓ {os.path.basename(output_path)}  (блок {block_id})")
         for p in chunk:
             print(f"      - {os.path.basename(p)}")

@@ -326,7 +326,7 @@ def render(strip_path: str, output_path: str, bg_video: str, bg_start_frame: int
         "-f", "rawvideo", "-pixel_format", "rgb24",
         "-video_size", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", str(FPS),
         "-i", "-",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "16", "-preset", "slow",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "faster",
         str(output_path),
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)

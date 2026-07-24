@@ -206,7 +206,7 @@ def render_table_video(curr_path, prev_path, next_path, output_path, bg_video, b
         "-f", "rawvideo", "-pixel_format", "rgb24",
         "-video_size", f"{OUTPUT_W}x{OUTPUT_H}", "-framerate", str(FPS),
         "-i", "-",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "16", "-preset", "slow",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "faster",
         str(output_path),
     ]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)

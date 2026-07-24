@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-Сводка ошибок проекта: читает все error-файлы в database/,
-группирует по B-блокам, выводит summary в терминал,
-сохраняет итог в database/errors_summary_<дата>.txt
+Сводка ошибок проекта: читает error-файлы из errors/stage_*/ (новый формат,
+по стадии и шагу) и остатки старых форматов в database/, группирует по
+B-блокам, выводит summary в терминал, сохраняет итог в
+database/errors_summary_<дата>.txt
 """
 
 import os
@@ -12,13 +13,22 @@ from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
 from path_utils import get_data_dir
+from error_log import iter_stage_error_files
 
 _DATA_DIR = get_data_dir(__file__)
 
 LABELS = {
     'image':       'Изображения не скачаны',
+    'video':       'Видео не скачаны',
     'screenshot':  'Скриншоты не созданы',
     'motionarray': 'MotionArray не переименованы',
+}
+
+_STEP_TYPE = {
+    'stage_images': 'image',
+    'pullvids_download': 'video',
+    'direct_video': 'video',
+    'screenshots': 'screenshot',
 }
 
 
@@ -42,18 +52,19 @@ def collect_errors(project_name: str) -> list:
     db_dir = _DATA_DIR / project_name / "database"
     errors = []
 
-    # 1. Ошибки скачивания изображений
-    img_csv = db_dir / f"os_doc_{project_name}_download_img_errors.csv"
-    if img_csv.exists():
+    # 1. Ошибки скачивания (новый формат: errors/stage_<N>/<step_id>.csv)
+    for stage_number, step_id, csv_path in iter_stage_error_files(project_name):
+        error_type = _STEP_TYPE.get(step_id, step_id)
         try:
-            with img_csv.open('r', encoding='utf-8') as f:
+            with csv_path.open('r', encoding='utf-8') as f:
                 for row in csv.DictReader(f):
-                    src = (row.get('source_address') or '').strip()
+                    src = (row.get('display_name') or '').strip()
                     url = (row.get('url') or '').strip()
                     if src or url:
-                        errors.append({'type': 'image', 'source': src, 'url': url})
+                        errors.append({'type': error_type, 'source': src, 'url': url,
+                                        'stage': stage_number, 'step': step_id})
         except Exception as e:
-            print(f"⚠️  {img_csv.name}: {e}")
+            print(f"⚠️  {csv_path.name}: {e}")
 
     # 2. Ошибки скриншотов (manual_screenshots.txt — source_address<TAB>url)
     manual_txt = db_dir / "manual_screenshots.txt"

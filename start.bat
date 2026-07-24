@@ -35,11 +35,7 @@ if defined PYTHONPATH (
 )
 
 cd /d "%ROOT_DIR%"
-if /I "%~1"=="web" (
-    call "%PYTHON_EXE%" %PYTHON_ARGS% "%ROOT_DIR%\web\app.py"
-) else (
-    call "%PYTHON_EXE%" %PYTHON_ARGS% "%ROOT_DIR%\core\main.py"
-)
+call "%PYTHON_EXE%" %PYTHON_ARGS% "%ROOT_DIR%\core\main.py"
 exit /b %ERRORLEVEL%
 
 :find_python

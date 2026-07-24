@@ -3,6 +3,8 @@ import sys
 import subprocess
 from pathlib import Path
 from path_utils import get_data_dir
+from progress_ui import render_bar, StatusBoard
+from error_log import log_download_error
 
 def check_and_install_dependencies():
     """Проверяет и устанавливает необходимые зависимости"""
@@ -570,9 +572,16 @@ def process_images(pictures_dir, output_dir):
 
     successful = 0
     errors = 0
+    total = len(images_to_process)
+    project_name = os.getenv("PROJECT_NAME", "").strip()
+    board = StatusBoard(2)
 
     for i, filename in enumerate(images_to_process, 1):
-        print(f"\n[{i}/{len(images_to_process)}] Обрабатываю: {filename}")
+        overall = (i - 1) / total
+        board.render([
+            f"[{i}/{total}] {filename}",
+            f"Всего:  [{render_bar(overall)}] {overall * 100:5.1f}%  (готово: {successful}, ошибок: {errors})",
+        ])
 
         input_path = os.path.join(pictures_dir, filename)
         # Сохраняем с тем же именем, но меняем расширение на .jpg
@@ -583,6 +592,16 @@ def process_images(pictures_dir, output_dir):
             successful += 1
         else:
             errors += 1
+            board.log(f"  ❌ {filename}")
+            if project_name:
+                log_download_error(project_name, "smart_cropping", Path(filename).stem, input_path,
+                                    reason="ошибка кропа/детекции")
+
+    board.render([
+        "готово",
+        f"Всего:  [{render_bar(1.0)}] 100.0%  (готово: {successful}, ошибок: {errors})",
+    ])
+    board.close()
 
     return successful, skipped_count, errors
 

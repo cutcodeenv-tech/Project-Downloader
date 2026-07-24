@@ -2,7 +2,6 @@ import os
 import re
 import csv
 import sys
-import json
 import time
 import shutil
 import platform
@@ -118,20 +117,8 @@ STRUCTURE_FILE = str(BASE_DIR / 'scripts' / 'default_project_structure.txt')
 ENV_FILE = str(BASE_DIR / '.env')
 SCRIPTS_DIR = BASE_DIR / 'scripts'
 REQUIREMENTS_FILE = BASE_DIR / 'requirements.txt'
-PAUSE_FLAG_FILE = BASE_DIR / ".pause_requested"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
-
-
-def is_pause_requested() -> bool:
-    return PAUSE_FLAG_FILE.exists()
-
-
-def clear_pause_flag() -> None:
-    try:
-        PAUSE_FLAG_FILE.unlink(missing_ok=True)
-    except OSError:
-        pass
 
 if load_dotenv is not None and os.path.exists(ENV_FILE):
     load_dotenv(ENV_FILE, override=False)
@@ -143,8 +130,6 @@ from youtube_utils import is_downloadable_youtube_video
 
 # Project structure creation function
 _REQUIRED_ASSETS = [
-    "assets/scratches_add.mp4",
-    "assets/alpha_mask.mp4",
     "assets/font/theater.bold-condensed.ttf",
 ]
 
@@ -1086,12 +1071,30 @@ class _ProgressPrinter:
                 print(f"    [download] Готов файл: {os.path.basename(filename)}", flush=True)
 
 
-def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[str] = None) -> bool:
+_DOWNLOAD_PROGRESS_RE = re.compile(r"\[download\]\s+([\d.]+)%")
+_DESTINATION_RE = re.compile(r"\[download\] Destination:\s+(.+)$")
+_MERGE_RE = re.compile(r'Merging formats into "(.+)"$')
+
+
+def _download_video_direct(
+    url: str,
+    output_dir: Path,
+    cookies_file: Optional[str] = None,
+    board=None,
+    idx: int = 1,
+    total: int = 1,
+    initial_label: str = "",
+) -> bool:
     """Скачивает одно видео через yt-dlp subprocess с явным захватом вывода."""
+    from progress_ui import render_bar, StatusBoard
+
     output_dir.mkdir(parents=True, exist_ok=True)
     ytdlp_bin = shutil.which("yt-dlp")
+    board_owned = board is None
+    board = board or StatusBoard(3)
+
     if not ytdlp_bin:
-        print("  ❌ yt-dlp не найден в PATH")
+        board.log("  ❌ yt-dlp не найден в PATH")
         return False
     video_quality = resolve_video_quality(os.getenv("VIDEO_QUALITY"))
     cookies_from_browser = get_cookies_from_browser()
@@ -1114,15 +1117,28 @@ def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[st
         cmd.append(url)
         return cmd
 
-    print(f"  🎞️ Качество: {video_quality}", flush=True)
+    board.log(f"  🎞️ Качество: {video_quality}")
     if cookies_from_browser:
-        print(f"  🍪 cookies-from-browser: {cookies_from_browser}", flush=True)
+        board.log(f"  🍪 cookies-from-browser: {cookies_from_browser}")
     elif cookies_file and Path(cookies_file).exists():
-        print(f"  🍪 cookies.txt: {Path(cookies_file).name}", flush=True)
+        board.log(f"  🍪 cookies.txt: {Path(cookies_file).name}")
 
     # Снимок до скачивания: определяем именно новый файл, чтобы не зависеть
     # от ранее лежавших в папке роликов.
     existing_before = set(output_dir.glob("*.mp4"))
+
+    label = initial_label or url
+    file_fraction = 0.0
+
+    def redraw():
+        overall = ((idx - 1) + file_fraction) / max(total, 1)
+        board.render([
+            f"[{idx}/{total}] {label}",
+            f"Всего:  [{render_bar(overall)}] {overall * 100:5.1f}%",
+            f"Файл:   [{render_bar(file_fraction)}] {file_fraction * 100:5.1f}%",
+        ])
+
+    redraw()
 
     for attempt in range(1, retry_count + 1):
         captured_lines: list[str] = []
@@ -1138,9 +1154,22 @@ def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[st
         )
         for line in proc.stdout:
             line = line.rstrip()
-            if line:
-                captured_lines.append(line)
-                print(line, flush=True)
+            if not line:
+                continue
+            captured_lines.append(line)
+
+            match = _DOWNLOAD_PROGRESS_RE.search(line)
+            dest_match = _DESTINATION_RE.search(line) or _MERGE_RE.search(line)
+            if match:
+                file_fraction = float(match.group(1)) / 100
+                redraw()
+            elif dest_match:
+                label = os.path.basename(dest_match.group(1))
+                redraw()
+            elif line.startswith("[debug]"):
+                continue
+            else:
+                board.log(f"    {line}")
         proc.wait()
 
         if proc.returncode == 0:
@@ -1149,27 +1178,36 @@ def _download_video_direct(url: str, output_dir: Path, cookies_file: Optional[st
             # откатываемся на самый свежий mp4 в папке.
             candidates = new_files or list(output_dir.glob("*.mp4"))
             if not candidates:
-                print(f"  ❌ MP4 файл не найден в {output_dir}")
+                board.log(f"  ❌ MP4 файл не найден в {output_dir}")
+                if board_owned:
+                    board.close()
                 return False
             latest = max(candidates, key=lambda f: f.stat().st_mtime)
             size_mb = latest.stat().st_size / 1024 / 1024
-            print(f"  ✅ Файл: {latest.name} ({size_mb:.1f} MB)")
+            file_fraction = 1.0
+            redraw()
+            board.log(f"  ✅ Файл: {latest.name} ({size_mb:.1f} MB)")
+            if board_owned:
+                board.close()
             return True
 
         joined_output = "\n".join(captured_lines)
         if attempt < retry_count and is_ytdlp_rate_limited(joined_output):
             sleep_for = retry_base_sleep * attempt
-            print(
+            board.log(
                 f"  ⚠️ Получен rate limit / 429. Повтор через {sleep_for:.1f} сек "
-                f"({attempt}/{retry_count})",
-                flush=True,
+                f"({attempt}/{retry_count})"
             )
             time.sleep(sleep_for)
             continue
 
-        print(f"  ❌ yt-dlp завершился с кодом {proc.returncode}")
+        board.log(f"  ❌ yt-dlp завершился с кодом {proc.returncode}")
+        if board_owned:
+            board.close()
         return False
 
+    if board_owned:
+        board.close()
     return False
 
 
@@ -1217,9 +1255,20 @@ def create_author_images(project_name: str):
 
     author_dir.mkdir(parents=True, exist_ok=True)
 
+    from progress_ui import render_bar, StatusBoard
+    from error_log import log_download_error
+
     created = 0
     skipped = 0
+    total = len(data)
+    board = StatusBoard(2)
     for idx, (source_address, url, channel_name, title) in enumerate(data, 1):
+        overall = (idx - 1) / total
+        board.render([
+            f"[{idx}/{total}] {source_address}",
+            f"Всего:  [{render_bar(overall)}] {overall * 100:5.1f}%  (готово: {created}, пропущено: {skipped})",
+        ])
+
         output_name = make_output_name(source_address, title)
         output_path = author_dir / output_name
         old_output_path = author_dir / f"{source_address}_author.png"
@@ -1237,9 +1286,15 @@ def create_author_images(project_name: str):
         try:
             _make_author_png(channel_name, output_path)
             created += 1
-            print(f"[{idx}/{len(data)}] {source_address} -> {output_path.name}")
         except Exception as e:
-            print(f"[{idx}/{len(data)}] Ошибка: {source_address}: {e}")
+            board.log(f"  ❌ {source_address}: {e}")
+            log_download_error(project_name, "stage_author", source_address, url, reason=str(e))
+
+    board.render([
+        "готово",
+        f"Всего:  [{render_bar(1.0)}] 100.0%  (готово: {created}, пропущено: {skipped})",
+    ])
+    board.close()
 
     print(f"Создано: {created}, пропущено: {skipped}")
     print(f"\n\033[32m=== Stage5. Done! Изображения с источниками созданы ===\033[0m")
@@ -1406,13 +1461,9 @@ def download_images(project_name: str):
         except Exception:
             return False
 
-    def log_error(display_name, url, error_csv, pictures_dir):
-        file_exists = os.path.exists(error_csv)
-        with open(error_csv, 'a', encoding='utf-8', newline='') as f:
-            w = csv.writer(f)
-            if not file_exists:
-                w.writerow(['source_address', 'url'])
-            w.writerow([display_name, url])
+    def log_error(display_name, url, pictures_dir):
+        from error_log import log_download_error
+        log_download_error(project_name, "stage_images", display_name, url)
         error_placeholder(display_name, pictures_dir)
 
     print(f"\n\033[32m=== Stage6. Start! Скачивание изображений ===\033[0m")
@@ -1425,7 +1476,6 @@ def download_images(project_name: str):
     if upd_subdir:
         print(f"Волна правок: {upd_subdir}")
     csv_file = os.path.join(database_dir, f'os_doc_{project_name}_image_links.csv')
-    error_csv = os.path.join(database_dir, f'os_doc_{project_name}_download_img_errors.csv')
 
     os.makedirs(pictures_dir, exist_ok=True)
 
@@ -1460,22 +1510,27 @@ def download_images(project_name: str):
         time.sleep(0.5)  # небольшая пауза чтобы не бомбить сервер
         return item, download_one(item['url'], item['display_name'], pictures_dir)
 
+    from progress_ui import print_bar, finish_bar
+
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_worker, L): L for L in to_download}
         done = 0
         for future in as_completed(futures):
             done += 1
             L, success = future.result()
-            print(f"[{done}/{total}] {L['display_name']} — {'✓' if success else '✗'}")
             if success:
                 ok += 1
             else:
                 fail += 1
-                log_error(L['display_name'], L['url'], error_csv, pictures_dir)
+                log_error(L['display_name'], L['url'], pictures_dir)
+                finish_bar()
+                print(f"  ❌ {L['display_name']}")
+            print_bar("Картинки", done / total, suffix=f"{done}/{total} (ошибок: {fail})")
+        finish_bar()
 
     print(f"Скачано: {ok}, ошибок: {fail}, пропущено (уже есть): {len(links) - len(to_download)}")
     if fail:
-        print(f"Ошибки: {os.path.basename(error_csv)}")
+        print(f"Ошибки: errors/stage_2/stage_images.csv")
     print(f"\n\033[32m=== Stage6. Done! Изображения скачаны ===\033[0m")
 
 
@@ -1517,18 +1572,24 @@ SCRIPT_TASKS = [
         "continue_on_error": True,
     },
     {
-        "id": "photo_placeholders",
-        "title": "Создать video placeholders из фото",
-        "script": "5_photo_placeholders.py",
+        "id": "screenshots",
+        "title": "Статьи на рваной бумаге (текст + подсветка заголовка)",
+        "script": "website_animate.py",
         "needs_project": True,
         "continue_on_error": True,
     },
     {
-        "id": "screenshots",
-        "title": "Сделать скриншоты other links",
-        "script": "7_screenshot_other_links.py",
+        "id": "photo_filmstrip_anim",
+        "title": "Анимация плёнки — стол с фото (вручную, ~2 мин/плёнка — долго на весь проект)",
+        "script": "photo_filmstrip_anim_table.py",
         "needs_project": True,
-        "project_arg": True,
+        "continue_on_error": True,
+    },
+    {
+        "id": "upscale_photos",
+        "title": "Апскейл фото (Real-ESRGAN, вручную, тяжёлая GPU-задача)",
+        "script": "6_upscale_photos.py",
+        "needs_project": True,
         "continue_on_error": True,
     },
     {
@@ -1549,24 +1610,37 @@ CORE_STAGES = [
     {"id": "stage_images", "title": "Скачать изображения", "run_mode": "stage_images", "needs_project": True},
 ]
 
+# Стадии проекта: каждый шаг FLOW_STEP_CATALOG принадлежит ровно одной.
+# Стадия 1 не зависит ни от чего; стадия 2 использует результат стадии 1
+# (ссылки/каналы из таблицы); стадия 3 (упаковка) использует кропнутые
+# картинки из стадии 2.
+STAGES = [
+    {"number": 1, "title": "Структура и метаданные проекта"},
+    {"number": 2, "title": "Скачивание и подготовка материала"},
+    {"number": 3, "title": "Упаковка"},
+]
+STAGE_MAP = {stage["number"]: stage for stage in STAGES}
+
 FLOW_STEP_CATALOG = [
-    {"id": "stage_structure", "kind": "stage", "title": "Создать структуру папок", "run_mode": "stage_structure"},
-    {"id": "stage_parse_links", "kind": "stage", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_sheets": True},
-    {"id": "stage_xml", "kind": "stage", "title": "XML плейсхолдеры", "run_mode": "stage_xml"},
-    {"id": "stage_enrich", "kind": "stage", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich"},
-    {"id": "stage_author", "kind": "stage", "title": "Создать PNG-плашки источников", "run_mode": "stage_author"},
-    {"id": "stage_images", "kind": "stage", "title": "Скачать изображения", "run_mode": "stage_images"},
-    {"id": "pullvids_download", "kind": "script", "title": "Скачать YouTube видео (yt-dlp)", "script_id": "pullvids_download"},
-    {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео", "script_id": "pulltube_rename"},
-    {"id": "motionarray_rename", "kind": "script", "title": "Переименовать MotionArray видео", "script_id": "motionarray_rename"},
-    {"id": "smart_cropping", "kind": "script", "title": "Кроп 16:9", "script_id": "smart_cropping"},
-    {"id": "photo_filmstrip", "kind": "script", "title": "Собрать плёнку с фото (B1-B5, B6-B10, ...)", "script_id": "photo_filmstrip"},
-    {"id": "photo_placeholders", "kind": "script", "title": "Создать video placeholders из фото", "script_id": "photo_placeholders"},
-    {"id": "screenshots", "kind": "script", "title": "Скриншоты other links", "script_id": "screenshots"},
+    {"id": "stage_structure", "kind": "stage", "title": "Создать структуру папок", "run_mode": "stage_structure", "stage": 1},
+    {"id": "stage_parse_links", "kind": "stage", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_sheets": True, "stage": 1},
+    {"id": "stage_xml", "kind": "stage", "title": "XML плейсхолдеры", "run_mode": "stage_xml", "stage": 1},
+    {"id": "stage_enrich", "kind": "stage", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "stage": 1},
+    {"id": "stage_images", "kind": "stage", "title": "Скачать изображения", "run_mode": "stage_images", "stage": 2},
+    {"id": "pullvids_download", "kind": "script", "title": "Скачать YouTube видео (yt-dlp)", "script_id": "pullvids_download", "stage": 2},
+    {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео", "script_id": "pulltube_rename", "stage": 2},
+    {"id": "motionarray_rename", "kind": "script", "title": "Переименовать MotionArray видео", "script_id": "motionarray_rename", "stage": 2},
+    {"id": "smart_cropping", "kind": "script", "title": "Кроп 16:9", "script_id": "smart_cropping", "stage": 2},
+    {"id": "stage_author", "kind": "stage", "title": "Создать PNG-плашки источников", "run_mode": "stage_author", "stage": 2},
+    {"id": "photo_filmstrip", "kind": "script", "title": "Собрать плёнку с фото (B1-B5, B6-B10, ...)", "script_id": "photo_filmstrip", "stage": 3},
+    {"id": "screenshots", "kind": "script", "title": "Статьи на рваной бумаге (текст + подсветка заголовка)", "script_id": "screenshots", "stage": 3},
 ]
 
 DEFAULT_NEW_PROJECT_STEP_IDS = [step["id"] for step in FLOW_STEP_CATALOG]
-DEFAULT_EDITS_STEP_IDS = [step["id"] for step in FLOW_STEP_CATALOG if step["id"] != "stage_structure"]
+
+
+def stage_step_ids(stage_number: int) -> list:
+    return [step["id"] for step in FLOW_STEP_CATALOG if step.get("stage") == stage_number]
 
 
 CORE_PIPELINE_TITLE = "Core pipeline: структура проекта, Google таблица, CSV, XML, авторы, картинки"
@@ -1643,10 +1717,6 @@ def refresh_optional_imports():
     except ImportError:
         questionary = None
         Choice = None
-
-
-def install_playwright_chromium():
-    run_command([sys.executable, "-m", "playwright", "install", "chromium"])
 
 
 def install_ffmpeg():
@@ -1741,14 +1811,91 @@ def install_docker_desktop():
     print("Установите Docker Desktop вручную: https://www.docker.com/products/docker-desktop/")
 
 
+def install_node_dependency():
+    print("\n=== Проверка Node.js/npm ===")
+    if shutil.which("node") and shutil.which("npm"):
+        print("✓ node/npm уже установлены")
+        return True
+
+    system = platform.system().lower()
+    if system == "darwin" and shutil.which("brew"):
+        run_command(["brew", "install", "node"])
+        return shutil.which("node") is not None
+    if system == "windows" and shutil.which("winget"):
+        run_command(["winget", "install", "--id", "OpenJS.NodeJS.LTS", "-e",
+                      "--accept-package-agreements", "--accept-source-agreements"])
+        return shutil.which("node") is not None
+
+    print("⚠️  Node.js не найден и не установлен автоматически.")
+    print("Установите Node.js вручную: https://nodejs.org/ (нужен для стадии 3 — плёнка/статьи через hyperframes)")
+    return False
+
+
+def install_paper_pipeline_dependency():
+    """npm install в paper_pipeline/ (puppeteer-core — нужен shot.mjs для статей)."""
+    print("\n=== Проверка зависимостей paper_pipeline (статьи) ===")
+    paper_dir = BASE_DIR / "paper_pipeline"
+    if not paper_dir.exists():
+        print("⚠️  paper_pipeline/ не найдена — шаг «Статьи» работать не будет.")
+        return
+    if not shutil.which("npm"):
+        print("⚠️  npm не найден — пропускаю установку зависимостей paper_pipeline.")
+        return
+    if (paper_dir / "node_modules").exists():
+        print("✓ paper_pipeline/node_modules уже установлены")
+        return
+    run_command(["npm", "install"], cwd=paper_dir, continue_on_error=True)
+
+
+_CHROME_CANDIDATES = {
+    "darwin": [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ],
+    "windows": [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ],
+    "linux": ["/usr/bin/google-chrome", "/usr/bin/chromium", "/usr/bin/chromium-browser"],
+}
+
+
+def find_chrome_for_puppeteer() -> str | None:
+    for path in _CHROME_CANDIDATES.get(platform.system().lower(), []):
+        if os.path.exists(path):
+            return path
+    return None
+
+
+def check_chrome_for_puppeteer():
+    print("\n=== Проверка Google Chrome (для извлечения текста статей) ===")
+    found = find_chrome_for_puppeteer()
+    if found:
+        print(f"✓ Chrome найден: {found}")
+        return
+
+    system = platform.system().lower()
+    if system == "darwin" and shutil.which("brew"):
+        run_command(["brew", "install", "--cask", "google-chrome"], continue_on_error=True)
+        found = find_chrome_for_puppeteer()
+        if found:
+            print(f"✓ Chrome установлен: {found}")
+            return
+
+    print("⚠️  Google Chrome не найден — шаг «Статьи» (paper_pipeline/shot.mjs) работать не будет.")
+    print("Установите Chrome вручную: https://www.google.com/chrome/")
+
+
 def install_all_dependencies():
     print("\n\033[32m=== Установка всех зависимостей ===\033[0m")
     print(f"Python: {sys.executable}")
     print(f"Version: {platform.python_version()}")
     install_python_requirements()
-    install_playwright_chromium()
     install_ffmpeg()
     install_realesrgan_dependency()
+    if install_node_dependency():
+        install_paper_pipeline_dependency()
+    check_chrome_for_puppeteer()
     install_docker_desktop()
     print("\n\033[32m=== Зависимости проверены ===\033[0m")
 
@@ -1914,8 +2061,6 @@ SCRIPT_TASK_MAP = {task["id"]: task for task in SCRIPT_TASKS}
 def get_default_flow_step_ids(flow_name: str):
     if flow_name == "new_project":
         return list(DEFAULT_NEW_PROJECT_STEP_IDS)
-    if flow_name == "edits":
-        return list(DEFAULT_EDITS_STEP_IDS)
     raise RuntimeError(f"Неизвестный flow: {flow_name}")
 
 
@@ -1966,9 +2111,14 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
         "last_run_at": datetime.now().isoformat(timespec="seconds"),
         "current_wave": os.getenv("UPD_SUBDIR", "").strip(),
     }))
-    for step_id in ordered_ids:
+    from progress_ui import render_bar
+
+    total_steps = len(ordered_ids)
+    for step_idx, step_id in enumerate(ordered_ids, 1):
         step = FLOW_STEP_MAP[step_id]
-        print(f"\n\033[36m=== Шаг: {step['title']} ===\033[0m")
+        os.environ["STAGE_NUMBER"] = str(step.get("stage") or "")
+        bar = render_bar(step_idx / total_steps, width=20)
+        print(f"\n\033[36m=== [{bar}] Шаг {step_idx}/{total_steps}: {step['title']} ===\033[0m")
         update_project_state(project_name, lambda state, step_id=step_id, title=step["title"]: state.setdefault("steps", {}).update({
             step_id: {
                 "title": title,
@@ -1984,6 +2134,23 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
             else:
                 task = SCRIPT_TASK_MAP[step["script_id"]]
                 run_script_task(task, project_name=project_name, image_mode=image_mode)
+        except KeyboardInterrupt:
+            # Прерванный шаг перезапустится с начала при следующем продолжении
+            # (скрипты не гарантируют возобновление с середины) — поэтому
+            # remaining включает и сам step_id, а не только то, что после него.
+            remaining = ordered_ids[ordered_ids.index(step_id):]
+            update_project_state(project_name, lambda state, step_id=step_id: state.setdefault("steps", {}).setdefault(step_id, {}).update({
+                "status": "interrupted",
+                "finished_at": datetime.now().isoformat(timespec="seconds"),
+            }))
+            update_project_state(project_name, lambda state, rem=remaining, fn=flow_name, im=image_mode: state.update({
+                "status": "paused",
+                "pending_steps": rem,
+                "paused_flow": fn,
+                "paused_image_mode": im,
+                "paused_wave": os.getenv("UPD_SUBDIR", "").strip(),
+            }))
+            raise
         except Exception:
             update_project_state(project_name, lambda state, step_id=step_id: state.setdefault("steps", {}).setdefault(step_id, {}).update({
                 "status": "failed",
@@ -1996,25 +2163,6 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
             "finished_at": datetime.now().isoformat(timespec="seconds"),
         }))
 
-        # Проверяем флаг паузы после каждого завершённого шага
-        if is_pause_requested():
-            clear_pause_flag()
-            remaining = ordered_ids[ordered_ids.index(step_id) + 1:]
-            update_project_state(project_name, lambda state, rem=remaining, fn=flow_name, im=image_mode: state.update({
-                "status": "paused",
-                "pending_steps": rem,
-                "paused_flow": fn,
-                "paused_image_mode": im,
-                "paused_wave": os.getenv("UPD_SUBDIR", "").strip(),
-            }))
-            print(f"\n\033[33m⏸️  Пауза. Выполнено до: {step['title']}\033[0m")
-            if remaining:
-                print(f"   Осталось шагов: {len(remaining)}")
-                print(f"   Нажмите «Продолжить» в интерфейсе чтобы возобновить.")
-            else:
-                print(f"   Это был последний шаг — пауза не нужна.")
-            return
-
     update_project_state(project_name, lambda state: state.update({
         "status": "ready",
         "pending_steps": [],
@@ -2023,102 +2171,106 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
     }))
 
 
+def ask_new_project_name() -> str:
+    """Только ввод имени — списка существующих проектов тут нарочно нет
+    (его показывает «Продолжить работу над проектом»)."""
+    existing = set(list_existing_projects())
+    while True:
+        name = ask_text("Введите название нового проекта: ").strip()
+        if not name:
+            print("Название проекта не может быть пустым.")
+            continue
+        if name in existing and not ask_confirm(f"Проект «{name}» уже существует. Работать в той же папке?"):
+            continue
+        os.environ["PROJECT_NAME"] = name
+        return name
+
+
+_STAGE_STATUS_MARK = {"done": "✓", "partial": "…", "pending": " "}
+
+
+def stage_status(state: dict, stage_number: int) -> str:
+    ids = stage_step_ids(stage_number)
+    steps = state.get("steps") or {}
+    statuses = [steps.get(step_id, {}).get("status") for step_id in ids]
+    if statuses and all(status == "done" for status in statuses):
+        return "done"
+    if any(status in ("done", "running", "failed", "interrupted") for status in statuses):
+        return "partial"
+    return "pending"
+
+
+def run_pipeline_for_project(project_name: str, image_mode: str):
+    """Общий движок для нового и для продолжаемого проекта: показывает 3
+    стадии (с отметкой прогресса), даёт выбрать любую, после успешного
+    завершения стадии сразу предлагает продолжить следующей — без
+    необходимости заново открывать меню стадий."""
+    stage_to_run = None
+
+    while True:
+        if stage_to_run is None:
+            state = init_project_state(project_name)
+            options = []
+            for stage in STAGES:
+                mark = _STAGE_STATUS_MARK.get(stage_status(state, stage["number"]), " ")
+                options.append((f"[{mark}] Стадия {stage['number']} — {stage['title']}", stage["number"]))
+            options.append(("Выход", "exit"))
+            choice = select_option(f"Проект: {project_name}", options)
+            if choice == "exit":
+                return
+            stage_to_run = choice
+
+        stage_title = STAGE_MAP[stage_to_run]["title"]
+        step_ids = stage_step_ids(stage_to_run)
+        print(f"\n\033[36m=== Стадия {stage_to_run}: {stage_title} ===\033[0m")
+        print(" → ".join(FLOW_STEP_MAP[step_id]["title"] for step_id in step_ids))
+
+        try:
+            execute_flow_steps(project_name, image_mode, "new_project", step_ids)
+        except KeyboardInterrupt:
+            print(f"\n\033[33m⏸️  Остановлено на стадии {stage_to_run}. Прогресс сохранён — "
+                  f"продолжить можно через «Продолжить работу над проектом».\033[0m")
+            return
+        except Exception as exc:
+            print(f"\n❌ Ошибка на стадии {stage_to_run}: {exc}")
+            stage_to_run = None
+            continue
+
+        if stage_to_run >= len(STAGES):
+            print("\n\033[32m=== Все стадии проекта завершены ===\033[0m")
+            stage_to_run = None
+            continue
+
+        next_stage = stage_to_run + 1
+        next_title = STAGE_MAP[next_stage]["title"]
+        if ask_confirm(f"Стадия {stage_to_run} завершена. Продолжить стадией {next_stage} — «{next_title}»?"):
+            stage_to_run = next_stage
+        else:
+            stage_to_run = None
+
+
 def run_new_project():
-    """Flow 0: новый проект — создаёт структуру и запускает полный пайплайн."""
-    project_name = select_project_name()
+    """Новый проект: только имя, без списка прошлых проектов. Дальше —
+    выбор и запуск стадий через общий движок."""
+    project_name = ask_new_project_name()
     image_mode = select_image_processing_mode()
-    selected_steps = get_default_flow_step_ids("new_project")
-
-    print("\n=== 0. Новый проект ===")
-    print(f"Проект: {project_name}")
-    print(f"Режим картинок: {image_mode}")
-    print("Шаги по умолчанию:")
-    print(" → ".join(FLOW_STEP_MAP[step_id]["title"] for step_id in selected_steps))
-
-    if not ask_confirm("Запустить?"):
-        print("Отменено.")
-        return
-
-    execute_flow_steps(project_name, image_mode, "new_project", selected_steps)
-    print("\n\033[32m=== Новый проект готов ===\033[0m")
+    print(f"\n=== Новый проект: {project_name} ===")
+    run_pipeline_for_project(project_name, image_mode)
 
 
-def run_edits():
-    """Flow 1: правки — выбирает существующий проект, парсит новую CSV, запускает пайплайн."""
+def run_continue_project():
+    """Продолжить работу над проектом: список существующих проектов,
+    дальше — тот же движок стадий (скрипт сам знает, что уже сделано)."""
     projects = list_existing_projects()
     if not projects:
-        print("Нет существующих проектов. Используйте '0. Новый проект'.")
+        print("Нет существующих проектов. Используйте «Новый проект».")
         return
 
     options = [(name, name) for name in projects]
-    project_name = select_option("Выберите проект для правок", options)
+    project_name = select_option("Продолжить работу над проектом", options)
     os.environ["PROJECT_NAME"] = project_name
-
     image_mode = select_image_processing_mode()
-    selected_steps = get_default_flow_step_ids("edits")
-
-    upd_key = datetime.now().strftime("upd_%Y-%m-%d")
-    print(f"\n=== 1. Правки: {project_name} | волна: {upd_key} ===")
-    print("Шаги по умолчанию:")
-    print(" → ".join(FLOW_STEP_MAP[step_id]["title"] for step_id in selected_steps))
-    print(f"Файлы этой волны пойдут в подпапки {upd_key}/")
-
-    if not ask_confirm("Запустить?"):
-        print("Отменено.")
-        return
-
-    os.environ["UPD_SUBDIR"] = upd_key
-    try:
-        execute_flow_steps(project_name, image_mode, "edits", selected_steps)
-        print("\n\033[32m=== Правки завершены ===\033[0m")
-    finally:
-        os.environ.pop("UPD_SUBDIR", None)
-
-
-def run_external_folder_crop_placeholder():
-    """Кроп под 16:9 + placeholders_photo для произвольной папки с фото."""
-    input_path = ask_text("Путь к папке с исходными фотографиями: ").strip().strip('"').strip("'")
-    if not input_path:
-        print("Путь не указан, отмена.")
-        return
-    input_dir = Path(input_path).expanduser().resolve()
-    if not input_dir.exists():
-        print(f"❌ Папка не найдена: {input_dir}")
-        return
-
-    cropped_dir = input_dir.parent / "images_cropped"
-
-    crop_script = SCRIPTS_DIR / "2.1_smart_cropping.py"
-    placeholder_script = SCRIPTS_DIR / "5_photo_placeholders.py"
-
-    for script in (crop_script, placeholder_script):
-        if not script.exists():
-            print(f"❌ Скрипт не найден: {script}")
-            return
-
-    print(f"\n📥 Исходная папка:  {input_dir}")
-    print(f"✂️  Кроп в папку:   {cropped_dir}")
-    print(f"🎬 Плейсхолдеры:   {cropped_dir.parent / 'placeholders_photo'}")
-
-    env = build_script_env()
-
-    print(f"\n\033[36m=== Шаг 1/2: Кроп 16:9 ===\033[0m")
-    run_command(
-        [sys.executable, crop_script, "--input", str(input_dir), "--output", str(cropped_dir)],
-        cwd=BASE_DIR,
-        env=env,
-        continue_on_error=False,
-    )
-
-    print(f"\n\033[36m=== Шаг 2/2: Photo placeholders ===\033[0m")
-    run_command(
-        [sys.executable, placeholder_script, "--input", str(cropped_dir)],
-        cwd=BASE_DIR,
-        env=env,
-        continue_on_error=False,
-    )
-
-    print(f"\n\033[32m=== Готово! Плейсхолдеры: {cropped_dir.parent / 'placeholders_photo'} ===\033[0m")
+    run_pipeline_for_project(project_name, image_mode)
 
 
 def run_selected_task_menu():
@@ -2130,7 +2282,6 @@ def run_selected_task_menu():
             options = [
                 ("Назад", "back"),
                 (CORE_PIPELINE_TITLE, "core"),
-                ("Кроп 16:9 + плейсхолдер из внешней папки", "external_folder"),
             ]
             options.extend(
                 (f"{task['script']} — {task['title']}", idx)
@@ -2150,10 +2301,6 @@ def run_selected_task_menu():
                     "stage_author",
                     "stage_images",
                 ])
-                continue
-
-            if choice == "external_folder":
-                run_external_folder_crop_placeholder()
                 continue
 
             task = SCRIPT_TASKS[choice]
@@ -2242,12 +2389,14 @@ def run_direct_video_download():
         return candidate
 
     print(f"\n=== Скачивание ===")
+    from progress_ui import StatusBoard
     ok = fail = 0
     pause_seconds = get_video_download_pause_seconds()
+    total = len(urls)
+    board = StatusBoard(3)
     for idx, url in enumerate(urls, 1):
         channel, title = url_meta[url]
         label = (title or url)[:60]
-        print(f"\n[{idx}/{len(urls)}] {label}")
 
         # Папка называется по названию видео, а не по дате скачивания.
         safe_title = re.sub(r'[<>:"/\\|?*]', '_', title).strip() if title else ""
@@ -2255,17 +2404,19 @@ def run_direct_video_download():
         video_dir = _unique_video_dir(safe_title)
         video_dir.mkdir(parents=True, exist_ok=True)
 
-        if _download_video_direct(url, video_dir, cookies_file):
+        if _download_video_direct(url, video_dir, cookies_file, board=board, idx=idx, total=total, initial_label=label):
             ok += 1
             author_path = video_dir / f"{safe_title}_author.png"
             try:
                 _make_author_png(channel, author_path)
-                print(f"  ✅ Скачано → {video_dir.name}/ | плашка: {author_path.name}")
+                board.log(f"  ✅ Скачано → {video_dir.name}/ | плашка: {author_path.name}")
             except Exception as e:
-                print(f"  ✅ Скачано → {video_dir.name}/ | ❌ плашка не создана: {e}")
+                board.log(f"  ✅ Скачано → {video_dir.name}/ | ❌ плашка не создана: {e}")
         else:
             fail += 1
-            print(f"  ❌ Ошибка скачивания")
+            board.log(f"  ❌ Ошибка скачивания: {label}")
+            from error_log import log_download_error
+            log_download_error(project_name, "direct_video", safe_title, url)
             # Пустую папку убираем, чтобы не плодить мусор после неудачи.
             try:
                 next(video_dir.iterdir())
@@ -2275,9 +2426,10 @@ def run_direct_video_download():
                 pass
 
         if idx < len(urls) and pause_seconds > 0:
-            print(f"  ⏳ Пауза перед следующим видео: {pause_seconds:.1f} сек")
+            board.log(f"  ⏳ Пауза перед следующим видео: {pause_seconds:.1f} сек")
             time.sleep(pause_seconds)
 
+    board.close()
     print(f"\n{'='*50}")
     print(f"Скачано: {ok}, ошибок: {fail}")
     print(f"📁 {video_direct_root}")
@@ -2293,7 +2445,7 @@ def main_menu():
                 [
                     ("Установить ВСЕ зависимости", "install"),
                     ("0. Новый проект", "new_project"),
-                    ("1. Правки проекта", "edits"),
+                    ("1. Продолжить работу над проектом", "continue_project"),
                     ("2. Скачать видео по ссылкам", "direct_video"),
                     ("Скрипты по очереди", "scripts"),
                     ("Выход", "exit"),
@@ -2303,8 +2455,8 @@ def main_menu():
                 install_all_dependencies()
             elif choice == "new_project":
                 run_new_project()
-            elif choice == "edits":
-                run_edits()
+            elif choice == "continue_project":
+                run_continue_project()
             elif choice == "direct_video":
                 run_direct_video_download()
             elif choice == "scripts":
@@ -2377,128 +2529,6 @@ def restart_with_preferred_python_if_needed():
     os.execve(preferred[0], preferred + [str(Path(__file__).resolve())], env)
 
 
-def _run_noninteractive(mode: str):
-    """Non-interactive entry point called via --run <mode> from the web UI.
-    All required values come from environment variables."""
-    if mode == "install":
-        install_all_dependencies()
-
-    elif mode == "install_ffmpeg":
-        install_ffmpeg()
-
-    elif mode == "install_realesrgan":
-        install_realesrgan_dependency()
-
-    elif mode == "install_whisper":
-        install_whisper_dependency()
-
-    elif mode == "new_project":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME env var is required for --run new_project")
-        image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
-        selected_steps = json.loads(os.getenv("FLOW_SELECTION_JSON", "[]") or "[]")
-        execute_flow_steps(project_name, image_mode, "new_project", selected_steps)
-        print("\n\033[32m=== Новый проект готов ===\033[0m")
-
-    elif mode == "edits":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME env var is required for --run edits")
-        image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
-        selected_steps = json.loads(os.getenv("FLOW_SELECTION_JSON", "[]") or "[]")
-        upd_key = datetime.now().strftime("upd_%Y-%m-%d")
-        os.environ["UPD_SUBDIR"] = upd_key
-        try:
-            print(f"\n=== 1. Правки: {project_name} | волна: {upd_key} ===")
-            execute_flow_steps(project_name, image_mode, "edits", selected_steps)
-            print("\n\033[32m=== Правки завершены ===\033[0m")
-        finally:
-            os.environ.pop("UPD_SUBDIR", None)
-
-    elif mode == "direct_video":
-        ensure_core_dependencies()
-        run_direct_video_download()
-
-    # ── Individual core pipeline stages ───────────────────────────────────────
-    elif mode == "stage_structure":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME required")
-        ensure_core_dependencies()
-        os.environ["PROJECT_NAME"] = project_name
-        create_structure()
-
-    elif mode == "stage_parse_links":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME required")
-        ensure_core_dependencies()
-        parse_links(project_name)
-
-    elif mode == "stage_xml":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME required")
-        ensure_core_dependencies()
-        create_xml_placeholders(project_name)
-
-    elif mode == "stage_enrich":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME required")
-        ensure_core_dependencies()
-        enrich_channels(project_name)
-
-    elif mode == "stage_author":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME required")
-        ensure_core_dependencies()
-        create_author_images(project_name)
-
-    elif mode == "stage_images":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME required")
-        ensure_core_dependencies()
-        download_images(project_name)
-
-    elif mode == "upscale_placeholders":
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        if not project_name:
-            raise RuntimeError("PROJECT_NAME required")
-        script_path = SCRIPTS_DIR / "6_upscale_photos.py"
-        if not script_path.exists():
-            raise FileNotFoundError(f"Скрипт не найден: {script_path}")
-        run_command(
-            [sys.executable, script_path],
-            cwd=BASE_DIR,
-            env=build_script_env(project_name=project_name),
-        )
-
-    elif mode.startswith("script:"):
-        # Run a specific script by name: --run script:2.1_smart_cropping.py
-        script_name = mode[len("script:"):]
-        project_name = os.getenv("PROJECT_NAME", "").strip()
-        image_mode = os.getenv("IMAGE_PROCESSING_MODE", "crop").strip()
-        task = next((t for t in SCRIPT_TASKS if t["script"] == script_name), None)
-        if task is None:
-            raise RuntimeError(f"Скрипт не найден в SCRIPT_TASKS: {script_name}")
-        run_script_task(task, project_name=project_name or None, image_mode=image_mode)
-
-    else:
-        raise RuntimeError(f"Неизвестный режим: {mode}")
-
-
 if __name__ == "__main__":
-    import argparse as _argparse
-    _parser = _argparse.ArgumentParser(add_help=False)
-    _parser.add_argument("--run", default=None, metavar="MODE")
-    _args, _ = _parser.parse_known_args()
-
     restart_with_preferred_python_if_needed()
-    if _args.run:
-        _run_noninteractive(_args.run)
-    else:
-        main_menu()
+    main_menu()

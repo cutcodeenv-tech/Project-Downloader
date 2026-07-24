@@ -6,7 +6,6 @@ chapters
 integrations
 mogrt
 output
-photo_placeholder
 pictures
 screenshots
 screenshots_placeholder

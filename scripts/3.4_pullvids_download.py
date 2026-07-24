@@ -29,6 +29,8 @@ DEFAULT_YTDLP_RETRY_BASE_SECONDS = 5.0
 
 from path_utils import get_data_dir
 from youtube_utils import youtube_url_kind
+from progress_ui import render_bar, StatusBoard
+from error_log import log_download_error
 
 BASE_DIR = Path(os.getenv('BASE_DIR') or Path(__file__).resolve().parent.parent)
 PROJECTS_ROOT = get_data_dir(__file__)
@@ -93,85 +95,9 @@ def video_already_downloaded(base_video_dir: str, video_id: str) -> bool:
     return False
 
 
-def _format_bytes(num: float | None) -> str:
-    if not num:
-        return "?"
-    units = ["B", "KiB", "MiB", "GiB"]
-    value = float(num)
-    for unit in units:
-        if value < 1024 or unit == units[-1]:
-            return f"{value:.1f}{unit}"
-        value /= 1024
-    return f"{value:.1f}GiB"
-
-
-def _format_speed(num: float | None) -> str:
-    if not num:
-        return "?"
-    return f"{_format_bytes(num)}/s"
-
-
-def _format_eta(seconds: int | float | None) -> str:
-    if seconds is None:
-        return "??:??"
-    total = max(0, int(seconds))
-    minutes, secs = divmod(total, 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    return f"{minutes:02d}:{secs:02d}"
-
-
-class _YTDLPLogger:
-    def debug(self, msg):
-        text = (msg or "").strip()
-        if text and not text.startswith("[debug]"):
-            print(f"    {text}", flush=True)
-
-    def warning(self, msg):
-        text = (msg or "").strip()
-        if text:
-            print(f"    {text}", flush=True)
-
-    def error(self, msg):
-        text = (msg or "").strip()
-        if text:
-            print(f"    {text}", flush=True)
-
-
-class _ProgressPrinter:
-    def __init__(self):
-        self.spinner_frames = "|/-\\"
-        self.spinner_idx = 0
-        self.active = False
-
-    def clear(self):
-        if self.active:
-            print(flush=True)
-            self.active = False
-
-    def hook(self, data):
-        status = data.get("status")
-        if status == "downloading":
-            downloaded = data.get("downloaded_bytes") or 0
-            total = data.get("total_bytes") or data.get("total_bytes_estimate")
-            percent = (downloaded / total * 100) if total else 0.0
-            line = (
-                f"[download] {percent:5.1f}% of {_format_bytes(total)} "
-                f"at {_format_speed(data.get('speed'))} ETA {_format_eta(data.get('eta'))}"
-            )
-            if sys.stdout.isatty():
-                frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
-                self.spinner_idx += 1
-                print(f"\r    {frame} {line}", end="", flush=True)
-                self.active = True
-            else:
-                print(f"    {line}", flush=True)
-        elif status == "finished":
-            self.clear()
-            filename = data.get("filename")
-            if filename:
-                print(f"    [download] Готов файл: {os.path.basename(filename)}", flush=True)
+_DOWNLOAD_PROGRESS_RE = re.compile(r"\[download\]\s+([\d.]+)%")
+_DESTINATION_RE = re.compile(r"\[download\] Destination:\s+(.+)$")
+_MERGE_RE = re.compile(r'Merging formats into "(.+)"$')
 
 
 def resolve_video_quality(value: str | None) -> str:
@@ -247,11 +173,23 @@ def is_ytdlp_rate_limited(text: str) -> bool:
 
 # ── download ─────────────────────────────────────────────────────────────────
 
-def download_video(url: str, output_dir: str, cookies_file: str | None, cookies_from_browser: str | None = None) -> bool:
+def download_video(
+    url: str,
+    output_dir: str,
+    cookies_file: str | None,
+    cookies_from_browser: str | None = None,
+    board: StatusBoard | None = None,
+    idx: int = 1,
+    total: int = 1,
+    initial_label: str = "",
+) -> bool:
     os.makedirs(output_dir, exist_ok=True)
     ytdlp_bin = shutil.which("yt-dlp")
+    board_owned = board is None
+    board = board or StatusBoard(3)
+
     if not ytdlp_bin:
-        print("  ❌ yt-dlp не найден в PATH")
+        board.log("  ❌ yt-dlp не найден в PATH")
         return False
     video_quality = resolve_video_quality(os.getenv("VIDEO_QUALITY"))
     retry_count = get_ytdlp_retry_count()
@@ -274,11 +212,24 @@ def download_video(url: str, output_dir: str, cookies_file: str | None, cookies_
         cmd.append(url)
         return cmd
 
-    print(f"  🎞️ Качество: {video_quality}")
+    board.log(f"  🎞️ Качество: {video_quality}")
     if browser_spec:
-        print(f"  🍪 cookies-from-browser: {browser_spec}")
+        board.log(f"  🍪 cookies-from-browser: {browser_spec}")
     elif cookies_file and os.path.exists(cookies_file):
-        print(f"  🍪 cookies.txt: {os.path.basename(cookies_file)}")
+        board.log(f"  🍪 cookies.txt: {os.path.basename(cookies_file)}")
+
+    label = initial_label or url
+    file_fraction = 0.0
+
+    def redraw():
+        overall = ((idx - 1) + file_fraction) / max(total, 1)
+        board.render([
+            f"[{idx}/{total}] {label}",
+            f"Всего:  [{render_bar(overall)}] {overall * 100:5.1f}%",
+            f"Файл:   [{render_bar(file_fraction)}] {file_fraction * 100:5.1f}%",
+        ])
+
+    redraw()
 
     for attempt in range(1, retry_count + 1):
         lines: list[str] = []
@@ -291,25 +242,46 @@ def download_video(url: str, output_dir: str, cookies_file: str | None, cookies_
         )
         for line in proc.stdout:
             line = line.rstrip()
-            if line:
-                lines.append(line)
-                print(line, flush=True)
+            if not line:
+                continue
+            lines.append(line)
+
+            match = _DOWNLOAD_PROGRESS_RE.search(line)
+            dest_match = _DESTINATION_RE.search(line) or _MERGE_RE.search(line)
+            if match:
+                file_fraction = float(match.group(1)) / 100
+                redraw()
+            elif dest_match:
+                label = os.path.basename(dest_match.group(1))
+                redraw()
+            elif line.startswith("[debug]"):
+                continue
+            else:
+                board.log(f"    {line}")
         proc.wait()
 
         if proc.returncode == 0:
-            print('  ✓ Скачано')
+            file_fraction = 1.0
+            redraw()
+            board.log(f"  ✓ Скачано: {label}")
+            if board_owned:
+                board.close()
             return True
 
         joined_output = "\n".join(lines)
         if attempt < retry_count and is_ytdlp_rate_limited(joined_output):
             sleep_for = retry_base_sleep * attempt
-            print(f"  ⚠️ 429 / rate limit. Повтор через {sleep_for:.1f} сек ({attempt}/{retry_count})")
+            board.log(f"  ⚠️ 429 / rate limit. Повтор через {sleep_for:.1f} сек ({attempt}/{retry_count})")
             time.sleep(sleep_for)
             continue
 
-        print(f'  ❌ yt-dlp завершился с кодом {proc.returncode}')
+        board.log(f'  ❌ yt-dlp завершился с кодом {proc.returncode}')
+        if board_owned:
+            board.close()
         return False
 
+    if board_owned:
+        board.close()
     return False
 
 
@@ -434,15 +406,20 @@ def main():
     ok_count = 0
     fail_count = 0
     pause_seconds = get_video_download_pause_seconds()
+    total = len(to_download)
+    board = StatusBoard(3)
     for idx, url in enumerate(to_download, 1):
-        print(f'\n[{idx}/{len(to_download)}] {url}')
-        if download_video(url, video_dir, cookies_file, cookies_from_browser):
+        if download_video(url, video_dir, cookies_file, cookies_from_browser,
+                           board=board, idx=idx, total=total, initial_label=url):
             ok_count += 1
         else:
             fail_count += 1
+            intended_name = extract_video_id(url) or url
+            log_download_error(project_name, "pullvids_download", intended_name, url)
         if idx < len(to_download) and pause_seconds > 0:
-            print(f'  ⏳ Пауза перед следующим видео: {pause_seconds:.1f} сек')
+            board.log(f'  ⏳ Пауза перед следующим видео: {pause_seconds:.1f} сек')
             time.sleep(pause_seconds)
+    board.close()
 
     print(f'\n=== ИТОГО ===')
     print(f'Скачано: {ok_count}  |  Ошибок: {fail_count}  |  Пропущено: {len(skipped)}')

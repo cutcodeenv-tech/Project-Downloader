@@ -112,8 +112,4 @@ export BASE_DIR="$ROOT_DIR"
 export PYTHONPATH="$ROOT_DIR/scripts${PYTHONPATH:+:$PYTHONPATH}"
 
 cd "$ROOT_DIR"
-if [[ "${1:-}" == "web" ]]; then
-  exec "$PYTHON_BIN" "$ROOT_DIR/web/app.py"
-else
-  exec "$PYTHON_BIN" "$ROOT_DIR/core/main.py"
-fi
+exec "$PYTHON_BIN" "$ROOT_DIR/core/main.py"
