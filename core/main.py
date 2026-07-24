@@ -1580,7 +1580,7 @@ SCRIPT_TASKS = [
     },
     {
         "id": "photo_filmstrip_anim",
-        "title": "Анимация плёнки — стол с фото (вручную, ~2 мин/плёнка — долго на весь проект)",
+        "title": "Анимация плёнки — стол с фото",
         "script": "photo_filmstrip_anim_table.py",
         "needs_project": True,
         "continue_on_error": True,
@@ -1633,6 +1633,7 @@ FLOW_STEP_CATALOG = [
     {"id": "smart_cropping", "kind": "script", "title": "Кроп 16:9", "script_id": "smart_cropping", "stage": 2},
     {"id": "stage_author", "kind": "stage", "title": "Создать PNG-плашки источников", "run_mode": "stage_author", "stage": 2},
     {"id": "photo_filmstrip", "kind": "script", "title": "Собрать плёнку с фото (B1-B5, B6-B10, ...)", "script_id": "photo_filmstrip", "stage": 3},
+    {"id": "photo_filmstrip_anim", "kind": "script", "title": "Анимация плёнки — стол с фото", "script_id": "photo_filmstrip_anim", "stage": 3},
     {"id": "screenshots", "kind": "script", "title": "Статьи на рваной бумаге (текст + подсветка заголовка)", "script_id": "screenshots", "stage": 3},
 ]
 
