@@ -1,4 +1,7 @@
 .env
+/settings.json
+/.update_check_cache.json
+/graphify-out/
 /assets/
 /data/
 /assets_media/

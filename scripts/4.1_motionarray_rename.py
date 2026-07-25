@@ -16,7 +16,7 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 
-from path_utils import get_data_dir
+from path_utils import get_data_dir, project_subdir
 _DATA_DIR = get_data_dir(__file__)
 
 
@@ -30,11 +30,11 @@ def get_project_name():
 
 
 def get_project_motionarray_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name / "video_motionarray"
+    return project_subdir(_DATA_DIR / project_name, "video_motionarray")
 
 
 def get_project_database_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name / "database"
+    return project_subdir(_DATA_DIR / project_name, "database")
 
 
 def get_motionarray_links_csv_path(project_name: str) -> Path:
@@ -42,7 +42,7 @@ def get_motionarray_links_csv_path(project_name: str) -> Path:
 
 
 def get_renamed_videos_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name / "renamed_videos"
+    return project_subdir(_DATA_DIR / project_name, "renamed_videos")
 
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}

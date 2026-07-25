@@ -2,7 +2,7 @@ import os
 import sys
 import subprocess
 from pathlib import Path
-from path_utils import get_data_dir
+from path_utils import get_data_dir, project_subdir
 from progress_ui import render_bar, StatusBoard
 from error_log import log_download_error
 
@@ -643,8 +643,8 @@ def main():
         # Определяем пути
         projects_root = get_data_dir(__file__)
         upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
-        base_images = projects_root / project_name / 'images'
-        base_cropped = projects_root / project_name / 'images_cropped'
+        base_images = project_subdir(projects_root / project_name, 'images')
+        base_cropped = project_subdir(projects_root / project_name, 'images_cropped')
         pictures_dir = base_images / upd_subdir if upd_subdir else base_images
         output_dir = base_cropped / upd_subdir if upd_subdir else base_cropped
 

@@ -1,6 +1,7 @@
 import os
 import re
 import csv
+import json
 import sys
 import time
 import shutil
@@ -10,7 +11,7 @@ import subprocess
 import traceback
 import textwrap
 import urllib.parse
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime
@@ -46,9 +47,20 @@ except ImportError:
 try:
     import questionary
     from questionary import Choice
+    QUESTIONARY_STYLE = questionary.Style([
+        ("qmark", "fg:#00d7ff bold"),
+        ("question", "bold"),
+        ("answer", "fg:#00d7ff bold"),
+        ("pointer", "fg:#00d7ff bold"),
+        ("highlighted", "fg:#00d7ff bold"),
+        ("selected", "fg:#00d7ff"),
+        ("instruction", "fg:#808080"),
+        ("text", ""),
+    ])
 except ImportError:
     questionary = None
     Choice = None
+    QUESTIONARY_STYLE = None
 
 try:
     import yt_dlp
@@ -112,8 +124,6 @@ class Logger:
 
 DEFAULT_BASE_DIR = Path(__file__).resolve().parent.parent
 BASE_DIR = Path(os.getenv("BASE_DIR", str(DEFAULT_BASE_DIR))).resolve()
-DATA_DIR = str(Path(os.getenv("PROJECTS_ROOT") or os.getenv("DATA_DIR") or (BASE_DIR / "data")).expanduser().resolve())
-STRUCTURE_FILE = str(BASE_DIR / 'scripts' / 'default_project_structure.txt')
 ENV_FILE = str(BASE_DIR / '.env')
 SCRIPTS_DIR = BASE_DIR / 'scripts'
 REQUIREMENTS_FILE = BASE_DIR / 'requirements.txt'
@@ -123,26 +133,33 @@ if str(SCRIPTS_DIR) not in sys.path:
 if load_dotenv is not None and os.path.exists(ENV_FILE):
     load_dotenv(ENV_FILE, override=False)
 
+from settings import apply_settings_to_env, set_setting, SETTINGS_FIELDS, SETTINGS_FIELD_MAP
+apply_settings_to_env(__file__)
+
+DATA_DIR = str(Path(os.getenv("PROJECTS_ROOT") or os.getenv("DATA_DIR") or (BASE_DIR / "data")).expanduser().resolve())
+
 from photo_placeholder_ops import install_realesrgan
-from path_utils import ensure_project_marker, write_project_marker, list_projects
+from path_utils import ensure_project_marker, write_project_marker, list_projects, project_subdir, get_assets_dir, PROJECT_FOLDERS
 from youtube_utils import is_downloadable_youtube_video
 
 
 # Project structure creation function
 _REQUIRED_ASSETS = [
-    "assets/font/theater.bold-condensed.ttf",
+    "font/theater.bold-condensed.ttf",
 ]
 
 
 def _check_assets() -> None:
     """Проверяет наличие asset-файлов. Предупреждает, но не останавливает пайплайн."""
-    missing = [p for p in _REQUIRED_ASSETS if not (BASE_DIR / p).exists()]
+    assets_dir = get_assets_dir(__file__)
+    missing = [p for p in _REQUIRED_ASSETS if not (assets_dir / p).exists()]
     if not missing:
         return
     print("\n\033[33m⚠️  Отсутствуют asset-файлы (некоторые скрипты не будут работать):\033[0m")
     for p in missing:
-        print(f"   • {BASE_DIR / p}")
-    print(f"\033[33m   Положите их в папку: {BASE_DIR / 'assets'}\033[0m\n")
+        print(f"   • {assets_dir / p}")
+    print(f"\033[33m   Положите их в папку: {assets_dir}\033[0m")
+    print(f"\033[33m   (или укажите свою через переменную окружения ASSETS_DIR)\033[0m\n")
 
 
 def get_project_dir(project_name: str) -> Path:
@@ -216,64 +233,20 @@ def create_structure():
                 continue
             return name
 
-    def get_project_name():
-        return resolve_project_name()
-
-    def get_required_structure():
-        try:
-            with open(STRUCTURE_FILE, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-        except FileNotFoundError:
-            print(f'Ошибка: файл {STRUCTURE_FILE} не найден')
-            return None
-        return [l.strip() for l in lines if l.strip() and not l.startswith('#')]
-
-    def check_existing_structure(project_dir):
-        if not os.path.exists(project_dir):
-            return [], []
-        existing = []
-        with_files = []
-        for item in os.listdir(project_dir):
-            item_path = os.path.join(project_dir, item)
-            if os.path.isdir(item_path):
-                existing.append(item)
-                try:
-                    if any(os.path.isfile(os.path.join(item_path, f)) for f in os.listdir(item_path)):
-                        with_files.append(item)
-                except PermissionError:
-                    print(f'Нет доступа к папке: {item}')
-        return existing, with_files
-
-    print("=== OSNOVATELI.DOC FRAMEWORK ===")
     _check_assets()
-    print(f"\n\033[32m=== Stage1. Start! Создание структуры проекта ===\033[0m")
 
-    project_name = get_project_name()
-    project_dir = str(get_project_dir(project_name))
+    project_name = resolve_project_name()
+    project_dir = get_project_dir(project_name)
 
-    required_folders = get_required_structure()
-    if required_folders is None:
-        print(f'Не удалось создать структуру проекта {project_name}')
-        return None
+    is_new = not project_dir.exists()
+    project_dir.mkdir(parents=True, exist_ok=True)
+    print(f'Создана директория проекта: {project_dir}' if is_new else f'Проект уже существует: {project_dir}')
 
-    existing_folders, folders_with_files = check_existing_structure(project_dir)
-
-    if not os.path.exists(project_dir):
-        os.makedirs(project_dir, exist_ok=True)
-        print(f'Создана директория проекта: {project_dir}')
-        existing_folders = []
-        folders_with_files = []
-    else:
-        print(f'Проект уже существует: {project_dir}')
-
-    missing_folders = [f for f in required_folders if f not in existing_folders]
-
-    for folder_name in missing_folders:
-        os.makedirs(os.path.join(project_dir, folder_name), exist_ok=True)
+    for folder_name in PROJECT_FOLDERS:
+        project_subdir(project_dir, folder_name).mkdir(parents=True, exist_ok=True)
 
     init_project_state(project_name)
 
-    print(f'\n\033[32m=== Stage1. Done! Создана структура проекта ===\033[0m')
     return project_name
 
 
@@ -282,7 +255,7 @@ def parse_links(project_name):
     load_dotenv(ENV_FILE, override=True)
 
     project_dir = os.path.join(DATA_DIR, project_name)
-    database_dir = os.path.join(project_dir, 'database')
+    database_dir = str(project_subdir(project_dir, 'database'))
     os.makedirs(database_dir, exist_ok=True)
 
     service_account_env_keys = [
@@ -311,7 +284,7 @@ def parse_links(project_name):
             email = get_env_value("CLIENT_EMAIL")
             if email:
                 print(f"Email сервисного аккаунта: {email}")
-            raise RuntimeError("Заполните .env и запустите Stage2 повторно.")
+            raise RuntimeError("Заполните .env и запустите шаг «Парсинг Google таблицы» повторно.")
 
         return {
             "type": get_env_value("TYPE"),
@@ -558,7 +531,6 @@ def parse_links(project_name):
                 print(f"Сохранено {len(links)} ссылок [{category}]")
         return categories
 
-    print(f"\n\033[32m=== Stage2. Start! Парсинг ссылок из Google таблицы ===\033[0m")
     service_account_info = get_service_account_info()
     service_email = service_account_info["client_email"]
     print(f"\n\033[33mДайте данному email доступ 'Читатель' к таблице:\n{service_email}\033[0m\n")
@@ -583,7 +555,6 @@ def parse_links(project_name):
     _generate_pulltube_links(database_dir, project_name, is_reparse)
     _generate_motionarray_links(database_dir, project_name, is_reparse)
 
-    print(f"\n\033[32m=== Stage2. Done! Ссылки успешно извлечены ===\033[0m")
 
 
 def _generate_pulltube_links(database_dir: str, project_name: str, is_reparse: bool) -> None:
@@ -794,7 +765,7 @@ def get_channel_and_title_for_url(session, url, logger):
 
 # Channel enrichment function
 def enrich_channels(project_name: str):
-    database_dir = os.path.join(DATA_DIR, project_name, 'database')
+    database_dir = str(project_subdir(os.path.join(DATA_DIR, project_name), 'database'))
 
     def load_cache(cache_file):
         cache = {}
@@ -841,7 +812,7 @@ def enrich_channels(project_name: str):
         print("Ссылок для обогащения не найдено.")
         return
 
-    print(f"\n\033[32m=== Stage4. Start! Получение названий YouTube-каналов ===\033[0m")
+    from progress_ui import render_bar, StatusBoard
 
     cache_file = os.path.join(database_dir, 'channel_cache.csv')
     cache = load_cache(cache_file)
@@ -849,7 +820,14 @@ def enrich_channels(project_name: str):
     session = requests.Session()
     results: List[Tuple[str, str, str, str]] = []  # (source_address, url, channel, title)
 
+    total = len(links)
+    board = StatusBoard(2)
     for idx, (source_address, url) in enumerate(links, 1):
+        overall = (idx - 1) / max(total, 1)
+        board.render([
+            f"Всего:  [{render_bar(overall)}] {overall * 100:5.1f}%  (готово: {idx - 1}/{total})",
+            f"Канал:  {url}",
+        ])
         if url in cache:
             channel, title = cache[url]
             if channel:
@@ -860,6 +838,11 @@ def enrich_channels(project_name: str):
         cache[url] = (channel, title)
         results.append((source_address, url, channel, title))
         time.sleep(0.12)
+    board.render([
+        f"Всего:  [{render_bar(1.0)}] 100.0%  (готово: {total}/{total})",
+        "",
+    ])
+    board.close()
 
     save_cache(cache, cache_file)
 
@@ -872,20 +855,36 @@ def enrich_channels(project_name: str):
 
     found = sum(1 for _, _, ch, _ in results if ch)
     print(f"Каналов найдено: {found}/{len(results)}")
-    print(f"\n\033[32m=== Stage4. Done! Названия каналов записаны ===\033[0m")
 
 
 # XML placeholders creation function
+def _has_voiceover_material(project_name: str) -> bool:
+    voiceover_dir = project_subdir(get_project_dir(project_name), "voiceover")
+    patterns = ("*.wav", "*.mp3", "*.m4a", "*.flac", "*.ogg", "*.words.json", "*.srt", "*.txt")
+    return any(list(voiceover_dir.glob(p)) for p in patterns)
+
+
 def create_xml_placeholders(project_name: str):
-    print(f"\n\033[32m=== Stage3. Start! Создание XML-плейсхолдеров ===\033[0m")
+    has_material = _has_voiceover_material(project_name)
+    prompt = "Делаем текстовый оверлей (плейсхолдеры) сейчас?"
+    if not has_material:
+        prompt += " Озвучки в voiceover/ пока не видно — можно пропустить и запустить этот шаг позже (Стадия 1 ещё раз, когда добавите аудио)."
+    if not ask_confirm(prompt, default=has_material):
+        print("\n⏭️  Текстовый оверлей пропущен — запустите Стадию 1 ещё раз, когда появится озвучка.")
+        return
+
     script_path = SCRIPTS_DIR / "1.2_xml_placeholders.py"
     if not script_path.exists():
         raise FileNotFoundError(f"Скрипт не найден: {script_path}")
-    run_command([sys.executable, script_path], cwd=BASE_DIR, env=build_script_env(project_name=project_name))
-    print(f"\n\033[32m=== Stage3. Done! XML-плейсхолдеры созданы ===\033[0m")
+    run_command(
+        [sys.executable, script_path],
+        cwd=BASE_DIR,
+        env=build_script_env(project_name=project_name),
+        title="Текстовый оверлей",
+    )
 
 
-_GEOLOGICA_FONT_PATH = Path(BASE_DIR) / "assets" / "Design Preparation" / "FONT" / "Geologica" / "Geologica-VariableFont_CRSV,SHRP,slnt,wght.ttf"
+_GEOLOGICA_FONT_PATH = get_assets_dir(__file__) / "Design Preparation" / "FONT" / "Geologica" / "Geologica-VariableFont_CRSV,SHRP,slnt,wght.ttf"
 _SOURCE_CLARIFY_TEXT = "уточнить источник"
 
 
@@ -1071,7 +1070,9 @@ class _ProgressPrinter:
                 print(f"    [download] Готов файл: {os.path.basename(filename)}", flush=True)
 
 
-_DOWNLOAD_PROGRESS_RE = re.compile(r"\[download\]\s+([\d.]+)%")
+_DOWNLOAD_PROGRESS_RE = re.compile(
+    r"\[download\]\s+([\d.]+)%(?:\s+of\s+~?([\d.]+\S+))?(?:\s+at\s+(\S+))?(?:\s+ETA\s+(\S+))?"
+)
 _DESTINATION_RE = re.compile(r"\[download\] Destination:\s+(.+)$")
 _MERGE_RE = re.compile(r'Merging formats into "(.+)"$')
 
@@ -1129,13 +1130,17 @@ def _download_video_direct(
 
     label = initial_label or url
     file_fraction = 0.0
+    file_size = ""
+    file_speed = ""
+    file_eta = ""
 
     def redraw():
         overall = ((idx - 1) + file_fraction) / max(total, 1)
+        extra = "  ·  ".join(part for part in (file_size, file_speed, f"ETA {file_eta}" if file_eta else "") if part)
         board.render([
-            f"[{idx}/{total}] {label}",
-            f"Всего:  [{render_bar(overall)}] {overall * 100:5.1f}%",
-            f"Файл:   [{render_bar(file_fraction)}] {file_fraction * 100:5.1f}%",
+            f"Всего:   [{render_bar(overall)}] {overall * 100:5.1f}%  (скачано {idx - 1}/{total}, осталось {max(total - idx + 1, 0)})",
+            f"Сейчас:  {label}",
+            f"         [{render_bar(file_fraction)}] {file_fraction * 100:5.1f}%" + (f"  {extra}" if extra else ""),
         ])
 
     redraw()
@@ -1162,9 +1167,13 @@ def _download_video_direct(
             dest_match = _DESTINATION_RE.search(line) or _MERGE_RE.search(line)
             if match:
                 file_fraction = float(match.group(1)) / 100
+                file_size = match.group(2) or file_size
+                file_speed = match.group(3) or ""
+                file_eta = match.group(4) or ""
                 redraw()
             elif dest_match:
                 label = os.path.basename(dest_match.group(1))
+                file_size = file_speed = file_eta = ""
                 redraw()
             elif line.startswith("[debug]"):
                 continue
@@ -1223,16 +1232,14 @@ def create_author_images(project_name: str):
             return f"{source_address} {safe_title}_author.png"
         return f"{source_address}_author.png"
 
-    print(f"\n\033[32m=== Stage5. Start! Создание изображений с источниками ===\033[0m")
-
     upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
     project_dir = Path(DATA_DIR) / project_name
-    channels_csv = project_dir / "database" / f"os_doc_{project_name}_channels.csv"
-    base_author_dir = project_dir / "author"
+    channels_csv = project_subdir(project_dir, "database") / f"os_doc_{project_name}_channels.csv"
+    base_author_dir = project_subdir(project_dir, "author")
     author_dir = base_author_dir / upd_subdir if upd_subdir else base_author_dir
 
     if not channels_csv.exists():
-        print(f"Файл channels.csv не найден, Stage5 пропущен.")
+        print(f"⏭️  Файл channels.csv не найден — пропускаю создание плашек источников.")
         return
 
     data: List[Tuple[str, str, str, str]] = []  # (source_address, url, channel, title)
@@ -1280,6 +1287,16 @@ def create_author_images(project_name: str):
             path for path in (output_path, old_output_path, base_output_path, base_old_output_path)
             if path.exists()
         ]
+        # output_path уже содержит title в имени (make_output_name) — если он
+        # существует, значит эта самая плашка уже собрана именно с текущими
+        # данными канала, пересобирать нечего. Остальные existing_paths — это
+        # более старые/безымянные варианты (например, плейсхолдер «уточнить
+        # источник» до того, как канал определился) — их специально НЕ
+        # считаем готовыми, чтобы плашка могла обновиться, когда канал
+        # наконец резолвится.
+        if output_path.exists():
+            skipped += 1
+            continue
         if existing_paths and not channel_name:
             skipped += 1
             continue
@@ -1297,135 +1314,138 @@ def create_author_images(project_name: str):
     board.close()
 
     print(f"Создано: {created}, пропущено: {skipped}")
-    print(f"\n\033[32m=== Stage5. Done! Изображения с источниками созданы ===\033[0m")
 
 
 # Image download function (from scripts/2_download_img.py)
-def download_images(project_name: str):
-    from urllib.parse import urlparse, parse_qs, unquote
-
-    def resolve_share_google_url(url):
-        if 'share.google/' not in url:
-            return url
+def resolve_share_google_url(url):
+    if 'share.google/' not in url:
+        return url
+    try:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+        }
+        response = requests.get(url, headers=headers, timeout=20, allow_redirects=True, stream=True)
+        final_url = response.url or url
+        response.close()
         try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-            }
-            response = requests.get(url, headers=headers, timeout=20, allow_redirects=True, stream=True)
-            final_url = response.url or url
-            response.close()
-            try:
-                parsed = urlparse(final_url)
-                query_params = parse_qs(parsed.query)
-                if query_params.get('imgurl'):
-                    return unquote(query_params['imgurl'][0])
-            except Exception:
-                pass
-            return final_url
-        except Exception:
-            return url
-
-    def extract_google_image_url(url):
-        if 'share.google' not in url and 'images.app.goo.gl' not in url:
-            return url
-        try:
-            parsed = urlparse(url)
+            parsed = urlparse(final_url)
             query_params = parse_qs(parsed.query)
             if query_params.get('imgurl'):
                 return unquote(query_params['imgurl'][0])
         except Exception:
             pass
+        return final_url
+    except Exception:
         return url
 
-    def get_ext_from_content_type(content_type):
-        ct = (content_type or '').lower()
-        if 'image/jpeg' in ct or 'image/jpg' in ct:
-            return '.jpg'
-        if 'image/png' in ct:
-            return '.png'
-        if 'image/gif' in ct:
-            return '.gif'
-        if 'image/webp' in ct:
-            return '.webp'
-        if 'image/bmp' in ct:
-            return '.bmp'
-        if 'image/tiff' in ct:
-            return '.tiff'
-        if 'image/svg+xml' in ct:
-            return '.svg'
-        return None
 
-    def get_ext_from_url(url):
-        path = urlparse(url).path
-        if '.' in path:
-            ext = path.split('.')[-1].lower()
-            if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg']:
-                return f'.{ext}'
-        if 'format=' in url:
-            m = re.search(r'format=([^&]+)', url)
-            if m and m.group(1).lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
-                return f'.{m.group(1).lower()}'
+def extract_google_image_url(url):
+    if 'share.google' not in url and 'images.app.goo.gl' not in url:
+        return url
+    try:
+        parsed = urlparse(url)
+        query_params = parse_qs(parsed.query)
+        if query_params.get('imgurl'):
+            return unquote(query_params['imgurl'][0])
+    except Exception:
+        pass
+    return url
+
+
+def get_ext_from_content_type(content_type):
+    ct = (content_type or '').lower()
+    if 'image/jpeg' in ct or 'image/jpg' in ct:
         return '.jpg'
+    if 'image/png' in ct:
+        return '.png'
+    if 'image/gif' in ct:
+        return '.gif'
+    if 'image/webp' in ct:
+        return '.webp'
+    if 'image/bmp' in ct:
+        return '.bmp'
+    if 'image/tiff' in ct:
+        return '.tiff'
+    if 'image/svg+xml' in ct:
+        return '.svg'
+    return None
 
-    def convert_to_jpg(input_path, output_path):
-        try:
-            with Image.open(input_path) as img:
-                if img.mode in ('RGBA', 'LA', 'P'):
-                    background = Image.new('RGB', img.size, (255, 255, 255))
-                    if img.mode == 'P':
-                        img = img.convert('RGBA')
-                    background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
-                    img = background
-                elif img.mode != 'RGB':
-                    img = img.convert('RGB')
-                img.save(output_path, 'JPEG', quality=95, optimize=True)
-            return True
-        except Exception as e:
-            print(f"  Ошибка конвертации: {e}")
-            return False
 
-    def download_one(url, filename, download_dir):
-        if 'share.google/' in url:
-            direct_url = resolve_share_google_url(url)
-        else:
-            direct_url = extract_google_image_url(url)
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-        last_exc = None
-        for attempt in range(3):
-            try:
-                response = requests.get(direct_url, headers=headers, timeout=30, allow_redirects=True, stream=True)
-                if response.status_code != 200:
-                    print(f"  HTTP {response.status_code} (попытка {attempt + 1}/3)")
-                    time.sleep(2 ** attempt)
-                    continue
-                content_type = response.headers.get('content-type', '').lower()
-                extension = get_ext_from_content_type(content_type) or get_ext_from_url(direct_url)
-                final_path = os.path.join(download_dir, f"{filename}.jpg")
-                temp_path = os.path.join(download_dir, f"{filename}{extension}")
-                with open(temp_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-                if extension.lower() == '.jpg':
-                    if os.path.abspath(temp_path) != os.path.abspath(final_path):
-                        os.replace(temp_path, final_path)
-                else:
-                    if convert_to_jpg(temp_path, final_path):
-                        os.remove(temp_path)
-                    else:
-                        print(f"  Сохранено без конвертации: {os.path.basename(temp_path)}")
-                return True
-            except (requests.ConnectionError, requests.Timeout) as e:
-                last_exc = e
-                print(f"  Сеть: {e} (попытка {attempt + 1}/3)")
-                time.sleep(2 ** attempt)
-            except Exception as e:
-                print(f"  Ошибка: {e}")
-                return False
-        print(f"  Все 3 попытки неудачны: {last_exc}")
+def get_ext_from_url(url):
+    path = urlparse(url).path
+    if '.' in path:
+        ext = path.split('.')[-1].lower()
+        if ext in ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'svg']:
+            return f'.{ext}'
+    if 'format=' in url:
+        m = re.search(r'format=([^&]+)', url)
+        if m and m.group(1).lower() in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+            return f'.{m.group(1).lower()}'
+    return '.jpg'
+
+
+def convert_to_jpg(input_path, output_path):
+    try:
+        with Image.open(input_path) as img:
+            if img.mode in ('RGBA', 'LA', 'P'):
+                background = Image.new('RGB', img.size, (255, 255, 255))
+                if img.mode == 'P':
+                    img = img.convert('RGBA')
+                background.paste(img, mask=img.split()[-1] if img.mode == 'RGBA' else None)
+                img = background
+            elif img.mode != 'RGB':
+                img = img.convert('RGB')
+            img.save(output_path, 'JPEG', quality=95, optimize=True)
+        return True
+    except Exception as e:
+        print(f"  Ошибка конвертации: {e}")
         return False
 
+
+def download_one(url, filename, download_dir):
+    if 'share.google/' in url:
+        direct_url = resolve_share_google_url(url)
+    else:
+        direct_url = extract_google_image_url(url)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    last_exc = None
+    for attempt in range(3):
+        try:
+            response = requests.get(direct_url, headers=headers, timeout=30, allow_redirects=True, stream=True)
+            if response.status_code != 200:
+                print(f"  HTTP {response.status_code} (попытка {attempt + 1}/3)")
+                time.sleep(2 ** attempt)
+                continue
+            content_type = response.headers.get('content-type', '').lower()
+            extension = get_ext_from_content_type(content_type) or get_ext_from_url(direct_url)
+            final_path = os.path.join(download_dir, f"{filename}.jpg")
+            temp_path = os.path.join(download_dir, f"{filename}{extension}")
+            with open(temp_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            if extension.lower() == '.jpg':
+                if os.path.abspath(temp_path) != os.path.abspath(final_path):
+                    os.replace(temp_path, final_path)
+            else:
+                if convert_to_jpg(temp_path, final_path):
+                    os.remove(temp_path)
+                else:
+                    print(f"  Сохранено без конвертации: {os.path.basename(temp_path)}")
+            return True
+        except (requests.ConnectionError, requests.Timeout) as e:
+            last_exc = e
+            print(f"  Сеть: {e} (попытка {attempt + 1}/3)")
+            time.sleep(2 ** attempt)
+        except Exception as e:
+            print(f"  Ошибка: {e}")
+            return False
+    print(f"  Все 3 попытки неудачны: {last_exc}")
+    return False
+
+
+def download_images(project_name: str):
     def get_existing_jpg(base_dir):
         existing = set()
         if not os.path.exists(base_dir):
@@ -1466,12 +1486,10 @@ def download_images(project_name: str):
         log_download_error(project_name, "stage_images", display_name, url)
         error_placeholder(display_name, pictures_dir)
 
-    print(f"\n\033[32m=== Stage6. Start! Скачивание изображений ===\033[0m")
-
     upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
     project_dir = os.path.join(DATA_DIR, project_name)
-    database_dir = os.path.join(project_dir, 'database')
-    base_images_dir = os.path.join(project_dir, 'images')
+    database_dir = str(project_subdir(project_dir, 'database'))
+    base_images_dir = str(project_subdir(project_dir, 'images'))
     pictures_dir = os.path.join(base_images_dir, upd_subdir) if upd_subdir else base_images_dir
     if upd_subdir:
         print(f"Волна правок: {upd_subdir}")
@@ -1480,7 +1498,7 @@ def download_images(project_name: str):
     os.makedirs(pictures_dir, exist_ok=True)
 
     if not os.path.exists(csv_file):
-        print(f"Файл image_links.csv не найден, Stage6 пропущен.")
+        print(f"⏭️  Файл image_links.csv не найден — пропускаю скачивание изображений.")
         return
 
     links = []
@@ -1499,7 +1517,6 @@ def download_images(project_name: str):
     to_download = [L for L in links if L['display_name'] not in existing]
     if not to_download:
         print("Все изображения уже скачаны.")
-        print(f"\n\033[32m=== Stage6. Done! Изображения скачаны ===\033[0m")
         return
 
     ok = 0
@@ -1510,8 +1527,9 @@ def download_images(project_name: str):
         time.sleep(0.5)  # небольшая пауза чтобы не бомбить сервер
         return item, download_one(item['url'], item['display_name'], pictures_dir)
 
-    from progress_ui import print_bar, finish_bar
+    from progress_ui import render_bar, StatusBoard
 
+    board = StatusBoard(1)
     with ThreadPoolExecutor(max_workers=4) as pool:
         futures = {pool.submit(_worker, L): L for L in to_download}
         done = 0
@@ -1523,15 +1541,15 @@ def download_images(project_name: str):
             else:
                 fail += 1
                 log_error(L['display_name'], L['url'], pictures_dir)
-                finish_bar()
-                print(f"  ❌ {L['display_name']}")
-            print_bar("Картинки", done / total, suffix=f"{done}/{total} (ошибок: {fail})")
-        finish_bar()
+                board.log(f"  ❌ {L['display_name']}")
+            board.render([
+                f"Картинки:  [{render_bar(done / total)}] {done / total * 100:5.1f}%  ({done}/{total}, ошибок: {fail})",
+            ])
+    board.close()
 
     print(f"Скачано: {ok}, ошибок: {fail}, пропущено (уже есть): {len(links) - len(to_download)}")
     if fail:
         print(f"Ошибки: errors/stage_2/stage_images.csv")
-    print(f"\n\033[32m=== Stage6. Done! Изображения скачаны ===\033[0m")
 
 
 SCRIPT_TASKS = [
@@ -1604,7 +1622,7 @@ SCRIPT_TASKS = [
 CORE_STAGES = [
     {"id": "stage_structure", "title": "Создать структуру папок", "run_mode": "stage_structure", "needs_project": True},
     {"id": "stage_parse_links", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_project": True, "needs_sheets": True},
-    {"id": "stage_xml", "title": "XML плейсхолдеры", "run_mode": "stage_xml", "needs_project": True},
+    {"id": "stage_xml", "title": "Текстовый оверлей (по словам, без склейки)", "run_mode": "stage_xml", "needs_project": True},
     {"id": "stage_enrich", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "needs_project": True},
     {"id": "stage_author", "title": "Создать PNG-плашки источников", "run_mode": "stage_author", "needs_project": True},
     {"id": "stage_images", "title": "Скачать изображения", "run_mode": "stage_images", "needs_project": True},
@@ -1624,7 +1642,7 @@ STAGE_MAP = {stage["number"]: stage for stage in STAGES}
 FLOW_STEP_CATALOG = [
     {"id": "stage_structure", "kind": "stage", "title": "Создать структуру папок", "run_mode": "stage_structure", "stage": 1},
     {"id": "stage_parse_links", "kind": "stage", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_sheets": True, "stage": 1},
-    {"id": "stage_xml", "kind": "stage", "title": "XML плейсхолдеры", "run_mode": "stage_xml", "stage": 1},
+    {"id": "stage_xml", "kind": "stage", "title": "Текстовый оверлей (по словам, без склейки)", "run_mode": "stage_xml", "stage": 1},
     {"id": "stage_enrich", "kind": "stage", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "stage": 1},
     {"id": "stage_images", "kind": "stage", "title": "Скачать изображения", "run_mode": "stage_images", "stage": 2},
     {"id": "pullvids_download", "kind": "script", "title": "Скачать YouTube видео (yt-dlp)", "script_id": "pullvids_download", "stage": 2},
@@ -1647,23 +1665,13 @@ def stage_step_ids(stage_number: int) -> list:
 CORE_PIPELINE_TITLE = "Core pipeline: структура проекта, Google таблица, CSV, XML, авторы, картинки"
 
 
-def run_command(cmd, cwd=None, env=None, continue_on_error=False):
-    print(f"\n$ {' '.join(str(part) for part in cmd)}")
-    result = subprocess.run(
-        [str(part) for part in cmd],
-        cwd=str(cwd or BASE_DIR),
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
-    if result.returncode != 0:
-        if result.stderr:
-            tail = result.stderr.decode(errors="replace").strip().splitlines()
-            for line in tail[-20:]:
-                print(f"  {line}")
+def run_command(cmd, cwd=None, env=None, continue_on_error=False, title=None):
+    from progress_ui import run_quiet
+    label = title or " ".join(str(part) for part in cmd)
+    result = run_quiet(cmd, cwd=str(cwd or BASE_DIR), env=env, title=label)
+    if not result.ok:
         message = f"Команда завершилась с ошибкой: {result.returncode}"
         if continue_on_error:
-            print(f"⚠️  {message}. Продолжаю.")
             return False
         raise RuntimeError(message)
     return True
@@ -1932,6 +1940,7 @@ def select_option(title, options):
             title,
             choices=[Choice(label, value=value) for label, value in options],
             use_indicator=True,
+            style=QUESTIONARY_STYLE,
         ).ask()
         if answer is None:
             raise KeyboardInterrupt
@@ -1953,20 +1962,23 @@ def select_option(title, options):
 
 def ask_text(message):
     if can_use_interactive_menu():
-        answer = questionary.text(message).ask()
+        answer = questionary.text(message, style=QUESTIONARY_STYLE).ask()
         if answer is None:
             raise KeyboardInterrupt
         return answer.strip()
     return input(message).strip()
 
 
-def ask_confirm(message):
+def ask_confirm(message, default=True):
     if can_use_interactive_menu():
-        answer = questionary.confirm(message, default=True).ask()
+        answer = questionary.confirm(message, default=default, style=QUESTIONARY_STYLE).ask()
         if answer is None:
             raise KeyboardInterrupt
         return bool(answer)
-    answer = input(f"{message} (y/n): ").strip().lower()
+    hint = "Y/n" if default else "y/N"
+    answer = input(f"{message} ({hint}): ").strip().lower()
+    if not answer:
+        return default
     return answer in {"y", "yes", "д", "да"}
 
 
@@ -2046,13 +2058,12 @@ def run_script_task(task, project_name=None, image_mode=None):
             project_name = select_project_name()
         cmd.extend(["--project", project_name])
 
-    print(f"\n\033[36m=== Запуск: {task['script']} ===\033[0m")
-    print(task["title"])
     return run_command(
         cmd,
         cwd=BASE_DIR,
         env=build_script_env(project_name=project_name, image_mode=image_mode),
         continue_on_error=task.get("continue_on_error", False),
+        title=task["title"],
     )
 
 FLOW_STEP_MAP = {step["id"]: step for step in FLOW_STEP_CATALOG}
@@ -2112,14 +2123,15 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
         "last_run_at": datetime.now().isoformat(timespec="seconds"),
         "current_wave": os.getenv("UPD_SUBDIR", "").strip(),
     }))
-    from progress_ui import render_bar
+    from progress_ui import stage_header
 
     total_steps = len(ordered_ids)
     for step_idx, step_id in enumerate(ordered_ids, 1):
         step = FLOW_STEP_MAP[step_id]
-        os.environ["STAGE_NUMBER"] = str(step.get("stage") or "")
-        bar = render_bar(step_idx / total_steps, width=20)
-        print(f"\n\033[36m=== [{bar}] Шаг {step_idx}/{total_steps}: {step['title']} ===\033[0m")
+        stage_number = step.get("stage") or 0
+        os.environ["STAGE_NUMBER"] = str(stage_number or "")
+        stage_title = STAGE_MAP.get(stage_number, {}).get("title", "")
+        stage_header(project_name, stage_number, stage_title, step_idx, total_steps, step["title"])
         update_project_state(project_name, lambda state, step_id=step_id, title=step["title"]: state.setdefault("steps", {}).update({
             step_id: {
                 "title": title,
@@ -2201,6 +2213,40 @@ def stage_status(state: dict, stage_number: int) -> str:
     return "pending"
 
 
+_STEP_STATUS_MARK_STYLE = {
+    "done": ("✓", "ok"),
+    "running": ("→", "accent"),
+    "interrupted": ("→", "accent"),
+    "failed": ("✗", "err"),
+}
+
+
+def _print_stage_checklist(project_name: str, state: dict, stage_number: int, step_ids: list):
+    from progress_ui import console as rich_console
+    from rich.table import Table
+    from rich.text import Text
+    from rich import box
+
+    steps = state.get("steps") or {}
+    table = Table(box=box.SIMPLE_HEAVY, show_header=False, pad_edge=False)
+    table.add_column("mark", width=3)
+    table.add_column("title")
+    table.add_column("note", justify="right")
+    for step_id in step_ids:
+        status = steps.get(step_id, {}).get("status")
+        mark, style = _STEP_STATUS_MARK_STYLE.get(status, ("·", "muted"))
+        note = {"done": "готово", "running": "выполняется…", "interrupted": "прервано",
+                "failed": "ошибка"}.get(status, "ожидает")
+        title = FLOW_STEP_MAP[step_id]["title"]
+        table.add_row(Text(mark, style=style), Text(title, style=("white" if status else "muted")), Text(note, style=style))
+
+    stage_title = STAGE_MAP[stage_number]["title"]
+    rich_console.print(
+        f"[muted]Проект «{project_name}»[/]   [title]Стадия {stage_number} — {stage_title}[/]"
+    )
+    rich_console.print(table)
+
+
 def run_pipeline_for_project(project_name: str, image_mode: str):
     """Общий движок для нового и для продолжаемого проекта: показывает 3
     стадии (с отметкой прогресса), даёт выбрать любую, после успешного
@@ -2221,10 +2267,9 @@ def run_pipeline_for_project(project_name: str, image_mode: str):
                 return
             stage_to_run = choice
 
-        stage_title = STAGE_MAP[stage_to_run]["title"]
         step_ids = stage_step_ids(stage_to_run)
-        print(f"\n\033[36m=== Стадия {stage_to_run}: {stage_title} ===\033[0m")
-        print(" → ".join(FLOW_STEP_MAP[step_id]["title"] for step_id in step_ids))
+        state = init_project_state(project_name)
+        _print_stage_checklist(project_name, state, stage_to_run, step_ids)
 
         try:
             execute_flow_steps(project_name, image_mode, "new_project", step_ids)
@@ -2547,26 +2592,205 @@ def run_gazety_generation():
     print(f"📁 {gazety_root}")
 
 
+def _current_setting_display(field: dict) -> str:
+    value = os.getenv(field["key"], "").strip()
+    if not value:
+        return "по умолчанию" if field["default"] is None else str(field["default"])
+    if field["kind"] == "choice":
+        for key, label in field["choices"]:
+            if key == value:
+                return label
+    return value
+
+
+def run_settings_menu():
+    while True:
+        options = [
+            (f"{field['label']}: {_current_setting_display(field)}", field["key"])
+            for field in SETTINGS_FIELDS
+        ]
+        options.append(("Назад", "back"))
+        choice = select_option("Настройки", options)
+        if choice == "back":
+            return
+
+        field = SETTINGS_FIELD_MAP[choice]
+        if field["kind"] == "choice":
+            value_options = [(label, key) for key, label in field["choices"]] + [("— сбросить на умолчание —", "")]
+            new_value = select_option(field["label"], value_options)
+        else:
+            current = os.getenv(field["key"], "").strip()
+            print(f"\n{field['label']}")
+            print(f"Текущее: {current or '(по умолчанию)'}")
+            new_value = ask_text("Новый путь (пусто — сбросить на умолчание): ")
+
+        set_setting(field["key"], new_value, __file__)
+        if new_value:
+            print(f"✓ Сохранено: {field['label']} = {new_value}")
+        else:
+            print(f"✓ Сброшено на умолчание: {field['label']}")
+        if field.get("restart_required"):
+            print("  Изменение применится после перезапуска программы.")
+
+
+UPDATE_CACHE_FILE = BASE_DIR / ".update_check_cache.json"
+UPDATE_CHECK_INTERVAL_SECONDS = 3600
+
+
+def _git(args, timeout=8):
+    return subprocess.run(
+        ["git", "-C", str(BASE_DIR), *args],
+        capture_output=True, text=True, timeout=timeout,
+    )
+
+
+def _resolve_remote_branch():
+    remote = _git(["remote"]).stdout.strip().splitlines()
+    remote = remote[0] if remote else "origin"
+    symref = _git(["ls-remote", "--symref", remote, "HEAD"])
+    m = re.search(r"refs/heads/(\S+)", symref.stdout)
+    remote_branch = m.group(1) if m else "main"
+    return remote, remote_branch
+
+
+def check_for_updates(force: bool = False) -> dict:
+    """git fetch + сравнение HEAD с origin/main. Кэшируется на час — чтобы
+    не дёргать GitHub при каждом заходе в меню. Любая сетевая/git ошибка
+    (нет сети, нет remote) тихо даёт available=False, а не падает."""
+    now = time.time()
+    if not force and UPDATE_CACHE_FILE.exists():
+        try:
+            cached = json.loads(UPDATE_CACHE_FILE.read_text(encoding="utf-8"))
+            if now - cached.get("checked_at", 0) < UPDATE_CHECK_INTERVAL_SECONDS:
+                return cached
+        except Exception:
+            pass
+
+    result = {"available": False, "ahead_by": 0, "checked_at": now, "error": None}
+    try:
+        remote, remote_branch = _resolve_remote_branch()
+        fetch = _git(["fetch", "--quiet", remote, remote_branch], timeout=10)
+        if fetch.returncode != 0:
+            result["error"] = (fetch.stderr or "fetch failed").strip()[:200]
+        else:
+            count = _git(["rev-list", "--count", f"HEAD..{remote}/{remote_branch}"])
+            ahead = int(count.stdout.strip() or "0")
+            result["ahead_by"] = ahead
+            result["available"] = ahead > 0
+    except Exception as exc:
+        result["error"] = str(exc)[:200]
+
+    try:
+        UPDATE_CACHE_FILE.write_text(json.dumps(result, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+    return result
+
+
+def install_update():
+    print("\n=== Проверка и установка обновления ===")
+    status = check_for_updates(force=True)
+    if status.get("error"):
+        print(f"❌ Не удалось проверить обновления: {status['error']}")
+        return
+    if not status["available"]:
+        print("✓ Уже установлена последняя версия.")
+        return
+    print(f"Доступно обновление: {status['ahead_by']} новых коммитов. Устанавливаю...")
+    remote, remote_branch = _resolve_remote_branch()
+    if run_command(["git", "-C", str(BASE_DIR), "pull", remote, remote_branch], title="git pull", continue_on_error=True):
+        print("✓ Обновление установлено. Перезапустите программу, чтобы применить изменения.")
+        check_for_updates(force=True)
+    else:
+        print("❌ Не удалось установить обновление автоматически — проверьте git-статус вручную.")
+
+
+def _errors_menu_core_handlers() -> dict:
+    """Ретраи, чья логика живёт в core/main.py (не в scripts/) — передаются
+    в errors_menu явно, чтобы не тянуть обратную зависимость scripts/ →
+    core/main.py."""
+
+    def retry_stage_images(project_name: str, row: dict):
+        project_dir = Path(DATA_DIR) / project_name
+        upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+        base_images_dir = str(project_subdir(project_dir, 'images'))
+        pictures_dir = os.path.join(base_images_dir, upd_subdir) if upd_subdir else base_images_dir
+        os.makedirs(pictures_dir, exist_ok=True)
+        ok = download_one(row["url"], row["display_name"], pictures_dir)
+        return (True, "") if ok else (False, "повтор скачивания не удался")
+
+    def retry_direct_video(project_name: str, row: dict):
+        project_dir = Path(DATA_DIR) / project_name
+        video_dir = project_subdir(project_dir, "video_direct")
+        cookies_file = get_cookies_file()
+        ok = _download_video_direct(row["url"], video_dir, cookies_file)
+        return (True, "") if ok else (False, "повтор скачивания не удался")
+
+    def retry_stage_author(project_name: str, row: dict):
+        project_dir = Path(DATA_DIR) / project_name
+        author_dir = project_subdir(project_dir, "author")
+        author_dir.mkdir(parents=True, exist_ok=True)
+        session = requests.Session()
+        logger = Logger()
+        channel, title = get_channel_and_title_for_url(session, row["url"], logger)
+        if not channel:
+            return False, "канал не определился по ссылке"
+        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title).strip() if title else ""
+        name = f"{row['display_name']} {safe_title}_author.png" if safe_title else f"{row['display_name']}_author.png"
+        _make_author_png(channel, author_dir / name)
+        return True, ""
+
+    return {
+        "stage_images": retry_stage_images,
+        "direct_video": retry_direct_video,
+        "stage_author": retry_stage_author,
+    }
+
+
+def run_errors_menu_entry():
+    from errors_menu import run_errors_menu
+    run_errors_menu(select_project_name, select_option, ask_confirm, _errors_menu_core_handlers())
+
+
 def main_menu():
-    print("=== OSNOVATELI.DOC FRAMEWORK ===")
+    from progress_ui import console as rich_console
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich import box
+
+    rich_console.print(Panel(
+        Text.from_markup(
+            "[brand]OSNOVATELI.DOC FRAMEWORK[/]\n[muted]терминальный пайплайн монтажа документалок[/]",
+            justify="center",
+        ),
+        box=box.ROUNDED, border_style="accent", padding=(1, 2),
+    ))
 
     while True:
         try:
+            update_status = check_for_updates()
+            if update_status.get("available"):
+                rich_console.print(
+                    f"[warn]Доступно обновление[/] [muted]— {update_status['ahead_by']} "
+                    f"новых коммитов на GitHub[/]"
+                )
+
             choice = select_option(
                 "Главное меню",
                 [
-                    ("Установить ВСЕ зависимости", "install"),
-                    ("0. Новый проект", "new_project"),
-                    ("1. Продолжить работу над проектом", "continue_project"),
-                    ("2. Скачать видео по ссылкам", "direct_video"),
-                    ("3. Сгенерировать газеты по ссылкам", "gazety_direct"),
-                    ("Скрипты по очереди", "scripts"),
-                    ("Выход", "exit"),
+                    ("1. Новый проект", "new_project"),
+                    ("2. Продолжить работу над проектом", "continue_project"),
+                    ("3. Скачать видео по ссылкам", "direct_video"),
+                    ("4. Сгенерировать газеты по ссылкам", "gazety_direct"),
+                    ("5. Скрипты по очереди", "scripts"),
+                    ("6. Ошибки проекта", "errors"),
+                    ("7. Настройки", "settings"),
+                    ("8. Установить ВСЕ зависимости", "install"),
+                    ("9. Проверить и установить обновление", "update"),
+                    ("0. Выход", "exit"),
                 ],
             )
-            if choice == "install":
-                install_all_dependencies()
-            elif choice == "new_project":
+            if choice == "new_project":
                 run_new_project()
             elif choice == "continue_project":
                 run_continue_project()
@@ -2576,6 +2800,14 @@ def main_menu():
                 run_gazety_generation()
             elif choice == "scripts":
                 run_selected_task_menu()
+            elif choice == "errors":
+                run_errors_menu_entry()
+            elif choice == "settings":
+                run_settings_menu()
+            elif choice == "install":
+                install_all_dependencies()
+            elif choice == "update":
+                install_update()
             elif choice == "exit":
                 return
         except KeyboardInterrupt:

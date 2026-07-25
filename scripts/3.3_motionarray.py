@@ -7,7 +7,7 @@
 import os
 import csv
 from datetime import datetime
-from path_utils import get_data_dir, resolve_project_name
+from path_utils import get_data_dir, resolve_project_name, project_subdir
 
 
 def get_project_name():
@@ -55,7 +55,7 @@ def main():
     # Путь к CSV файлу с MotionArray ссылками
     data_dir = get_data_dir(__file__)
     project_dir = os.path.join(str(data_dir), project_name)
-    database_dir = os.path.join(project_dir, 'database')
+    database_dir = str(project_subdir(project_dir, 'database'))
     csv_file = os.path.join(database_dir, f'os_doc_{project_name}_motionarray_links.csv')
 
     if not os.path.exists(csv_file):

@@ -6,15 +6,49 @@ from datetime import datetime
 
 
 PROJECT_MARKER_FILENAME = ".osnovateli-project.json"
-PROJECT_STRUCTURE_DIRS = (
-    "database",
-    "images",
-    "video",
-    "author",
-    "placeholders_xml",
-    "placeholders_photo",
-    "articles",
-)
+
+# Рабочие подпапки проекта, физически разложенные по стадиям пайплайна —
+# каждая лежит внутри STAGE_DIR_NAMES[N]. Значение None — сквозная папка,
+# не привязанная к одной стадии (лежит прямо в корне проекта: errors/ уже
+# сама делится по стадиям внутри себя, video_direct/gazety_direct — ручные
+# разделы меню, не часть автоматического потока «Новый проект»).
+STAGE_DIR_NAMES = {
+    1: "01_структура_и_метаданные",
+    2: "02_скачивание_и_подготовка",
+    3: "03_упаковка",
+}
+
+PROJECT_FOLDERS = {
+    "database": 1,
+    "placeholders_xml": 1,
+    "voiceover": 1,
+    "images": 2,
+    "images_cropped": 2,
+    "video": 2,
+    "video_motionarray": 2,
+    "renamed_videos": 2,
+    "author": 2,
+    "filmstrips": 3,
+    "filmstrip_videos": 3,
+    "articles": 3,
+    "errors": None,
+    "video_direct": None,
+    "gazety_direct": None,
+}
+
+# Для обратной совместимости с уже существующими (старыми, плоскими)
+# проектами при определении «это папка проекта или нет».
+PROJECT_STRUCTURE_DIRS = tuple(STAGE_DIR_NAMES.values()) + tuple(PROJECT_FOLDERS.keys())
+
+
+def project_subdir(project_dir, name: str) -> Path:
+    """Путь к рабочей подпапке проекта — внутри нужной стадии (см.
+    PROJECT_FOLDERS), либо прямо в корне проекта для сквозных папок."""
+    project_dir = Path(project_dir)
+    stage = PROJECT_FOLDERS.get(name)
+    if stage is None:
+        return project_dir / name
+    return project_dir / STAGE_DIR_NAMES[stage] / name
 
 
 def get_base_dir(current_file: str) -> Path:
@@ -40,15 +74,21 @@ def get_projects_root(current_file: str) -> Path:
 
 
 def get_assets_dir(current_file: str) -> Path:
+    env_assets_dir = os.getenv("ASSETS_DIR")
+    if env_assets_dir:
+        return Path(env_assets_dir).expanduser().resolve()
     return get_base_dir(current_file) / "assets"
+
+
+def get_assets_media_dir(current_file: str) -> Path:
+    env_assets_media_dir = os.getenv("ASSETS_MEDIA_DIR")
+    if env_assets_media_dir:
+        return Path(env_assets_media_dir).expanduser().resolve()
+    return get_base_dir(current_file) / "assets_media"
 
 
 def get_scripts_dir(current_file: str) -> Path:
     return get_base_dir(current_file) / "scripts"
-
-
-def get_structure_file(current_file: str) -> Path:
-    return get_base_dir(current_file) / "default_project_structure.txt"
 
 
 def get_project_dir(current_file: str, project_name: str) -> Path:

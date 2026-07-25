@@ -60,6 +60,35 @@ def is_stale(output_path) -> bool:
     return False
 
 
+def inputs_changed(output_path, expected_inputs) -> bool:
+    """True, если у output_path есть манифест, но записанный в нём список
+    входных файлов НЕ совпадает с expected_inputs — например, страница
+    плёнки раньше добивалась повторами фото своего блока, а теперь в блок
+    добавили новое настоящее фото: старые файлы-повторы на диске не
+    менялись (is_stale() тут промолчит), но состав страницы должен быть
+    другим. Нет манифеста — не знаем состав, ничего не трогаем (как и в
+    is_stale, чтобы не сносить то, что уже есть в старых проектах)."""
+    output_path = Path(output_path)
+    manifest_path = _manifest_path(output_path)
+    if not output_path.exists() or not manifest_path.exists():
+        return False
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    recorded = [inp.get("path") for inp in data.get("inputs", [])]
+    expected = [str(p) for p in expected_inputs]
+    return recorded != expected
+
+
+def remove_output(output_path) -> None:
+    """Удаляет output-файл и его манифест (если есть) — чтобы штатный
+    idempotent-скрипт пересобрал его на следующем шаге."""
+    output_path = Path(output_path)
+    output_path.unlink(missing_ok=True)
+    _manifest_path(output_path).unlink(missing_ok=True)
+
+
 def find_stale(directory, output_glob="*") -> list:
     """Ищет в directory все файлы с манифестом (output_glob по самому
     output-файлу, не по .manifest.json) и возвращает пути устаревших."""

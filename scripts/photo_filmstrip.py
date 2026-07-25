@@ -40,13 +40,19 @@ from collections import defaultdict
 import numpy as np
 from PIL import Image, ImageOps
 
-from path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir
+from path_utils import (
+    get_base_dir as _get_base_dir,
+    get_data_dir as _get_data_dir,
+    get_assets_dir as _get_assets_dir,
+    project_subdir as _project_subdir,
+)
 import manifest
 
 _BASE_DIR = _get_base_dir(__file__)
 _DATA_DIR = _get_data_dir(__file__)
-_TEMPLATE_PATH = _BASE_DIR / "assets" / "New Design" / "Texturelabs_Film_139XL.jpg"
-_GRUNGE_TEXTURE_PATH = _BASE_DIR / "assets" / "New Design" / "Texturelabs_Grunge_265XL.jpg"
+_ASSETS_DIR = _get_assets_dir(__file__)
+_TEMPLATE_PATH = _ASSETS_DIR / "New Design" / "Texturelabs_Film_139XL.jpg"
+_GRUNGE_TEXTURE_PATH = _ASSETS_DIR / "New Design" / "Texturelabs_Grunge_265XL.jpg"
 GRUNGE_OPACITY = 0.18
 
 PHOTOS_PER_PAGE = 3  # уникальных фото на одну плёнку (A, B, C)
@@ -208,8 +214,8 @@ def main() -> int:
         if not project_name:
             project_name = input("Введите название проекта: ").strip()
         upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
-        base_input = _DATA_DIR / project_name / "images_cropped"
-        base_output = _DATA_DIR / project_name / "filmstrips"
+        base_input = _project_subdir(_DATA_DIR / project_name, "images_cropped")
+        base_output = _project_subdir(_DATA_DIR / project_name, "filmstrips")
         input_dir = str(base_input / upd_subdir) if upd_subdir else str(base_input)
         output_dir = args.output_dir or (str(base_output / upd_subdir) if upd_subdir else str(base_output))
         if upd_subdir:
@@ -243,11 +249,25 @@ def main() -> int:
     print(f"📥 Источник: {input_dir}")
     print(f"📁 Найдено фото: {len(photos)} -> {len(blocks)} блоков сценария -> {len(pages)} плёнок")
 
-    # Устаревшие (фото в блоке заменили/добавили после сборки) пересобираем
-    # заодно с недостающими — манифест хранит, какие именно фото вошли в плёнку.
+    # Устаревшие (фото в блоке заменили после сборки — те же файлы, но
+    # изменилось содержимое) пересобираем заодно с недостающими — манифест
+    # хранит, какие именно фото вошли в плёнку.
     stale_removed = manifest.clear_stale(output_dir, "B*_p*.jpg")
     if stale_removed:
         print(f"♻️  Устарело (фото изменились) — пересоберу: {len(stale_removed)}")
+
+    # Отдельный случай: у блока была неполная последняя страница, добитая
+    # повторами его же фото (build_pages), а теперь в блок добавили новое
+    # настоящее фото — старые файлы-повторы на диске не менялись (clear_stale
+    # выше это не поймает), но состав страницы теперь должен быть другим.
+    composition_changed = []
+    for block_id, page_idx, chunk in pages:
+        output_path = os.path.join(output_dir, f"B{block_id}_p{page_idx}.jpg")
+        if manifest.inputs_changed(output_path, chunk):
+            manifest.remove_output(output_path)
+            composition_changed.append(output_path)
+    if composition_changed:
+        print(f"♻️  Состав страницы изменился (новое фото вместо повтора) — пересоберу: {len(composition_changed)}")
 
     todo = [(block_id, page_idx, chunk) for block_id, page_idx, chunk in pages
             if not os.path.exists(os.path.join(output_dir, f"B{block_id}_p{page_idx}.jpg"))]

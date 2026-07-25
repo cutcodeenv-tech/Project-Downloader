@@ -18,7 +18,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from path_utils import get_data_dir, get_base_dir
+from path_utils import get_data_dir, get_base_dir, project_subdir
 from progress_ui import render_bar, StatusBoard
 from error_log import log_download_error
 
@@ -33,11 +33,11 @@ RENDER_TIMEOUT_S = 240
 
 
 def get_project_database_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name / "database"
+    return project_subdir(_DATA_DIR / project_name, "database")
 
 
 def get_project_articles_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name / "articles"
+    return project_subdir(_DATA_DIR / project_name, "articles")
 
 
 def get_other_links_csv_path(project_name: str) -> Path:

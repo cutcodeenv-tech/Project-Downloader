@@ -21,7 +21,7 @@ from photo_placeholder_ops import (
     replace_source_with_upscaled,
     resolve_upscaled_output,
 )
-from path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir
+from path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir, project_subdir as _project_subdir
 
 
 BASE_DIR = _get_base_dir(__file__)
@@ -74,7 +74,7 @@ def main() -> int:
     if scale not in (2, 4):
         raise RuntimeError("Поддерживаются только scale 2x и 4x")
 
-    src_dir = DATA_DIR / project_name / "images_cropped"
+    src_dir = _project_subdir(DATA_DIR / project_name, "images_cropped")
     if upd_subdir:
         src_dir = src_dir / upd_subdir
 

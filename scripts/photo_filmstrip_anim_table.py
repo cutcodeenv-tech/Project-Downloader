@@ -44,7 +44,7 @@ from photo_filmstrip import (
     FRAME_BOXES, group_by_block, build_pages, compose_page,
     _TEMPLATE_PATH, _GRUNGE_TEXTURE_PATH,
 )
-from path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir
+from path_utils import get_base_dir as _get_base_dir, get_data_dir as _get_data_dir, project_subdir as _project_subdir
 
 _BASE_DIR = _get_base_dir(__file__)
 _DATA_DIR = _get_data_dir(__file__)
@@ -140,6 +140,52 @@ def camera_state(t, segments, frame_centers, frame_sizes):
     return cx, cy, win_w, win_h
 
 
+def _min_target_w(frame_sizes, indices=(0, 1, 2)):
+    """Наименьшее окно камеры (по ширине, в canvas-px), которое вообще
+    случается у героя-плёнки за весь ролик — camera_state никогда не сужает
+    окно центрального слоя больше этого (в intro окно только шире). Нужно,
+    чтобы понять, до какого разрешения можно один раз сжать исходник плёнки
+    без потери детализации на самом тесном приближении камеры."""
+    min_w = None
+    for i in indices:
+        w, h = frame_sizes[i]
+        w *= FRAME_PADDING
+        h *= FRAME_PADDING
+        if w / h > OUTPUT_ASPECT:
+            h = w / OUTPUT_ASPECT
+        else:
+            w = h * OUTPUT_ASPECT
+        if min_w is None or w < min_w:
+            min_w = w
+    return min_w
+
+
+def _safe_prescale_ratio(scale, min_win_w, margin=0.85):
+    """Во сколько раз можно один раз (не на каждый кадр) сжать исходник
+    плёнки, не потеряв детализацию даже на самом тесном приближении камеры.
+    На пределе зума нужно ровно scale_out*scale исходных пикселей на
+    выходной; margin<1 оставляет запас сверху (не режем впритык). Если даже
+    на пределе зума источника и так не хватает (>=1, картинка уже
+    апскейлится) — сжимать нельзя, возвращаем 1.0 (без изменений)."""
+    demand = scale * OUTPUT_W / min_win_w
+    if demand >= margin:
+        return 1.0
+    return demand / margin
+
+
+def _apply_prescale(layer: dict, ratio: float) -> None:
+    """Сжимает уже загруженный (и для боковых — повёрнутый) слой в ratio раз
+    один раз, до цикла рендера, и синхронно поджимает scale — box_canvas
+    (позиция на canvas) не меняется, только исходное разрешение под ним."""
+    if ratio >= 0.98:
+        return
+    strip = layer["strip"]
+    new_w = max(1, round(strip.width * ratio))
+    new_h = max(1, round(strip.height * ratio))
+    layer["strip"] = strip.resize((new_w, new_h), Image.LANCZOS)
+    layer["scale"] = layer["scale"] / ratio
+
+
 def paste_layer(frame: Image.Image, layer, left, top, right, bottom, scale_out):
     bx0, by0, bx1, by1 = layer["box_canvas"]
     ix0, iy0 = max(left, bx0), max(top, by0)
@@ -193,6 +239,14 @@ def render_table_video(curr_path, prev_path, next_path, output_path, bg_video, b
         layers.append(build_side_layer(prev_path, PREV_ANGLE_DEG, scale, canvas_size,
                                         mcx - mw * SIDE_OFFSET_X_FRAC, mcy - mh * SIDE_OFFSET_Y_FRAC))
     layers.append(middle_layer)  # герой поверх всех
+
+    # Один раз (не на каждый кадр) поджимаем исходники плёнок до разрешения,
+    # которое реально нужно на самом тесном приближении камеры — дальше
+    # per-frame resize в paste_layer работает с намного меньшей картинкой,
+    # без потери детализации (см. _safe_prescale_ratio).
+    prescale_ratio = _safe_prescale_ratio(scale, _min_target_w(frame_sizes))
+    for layer in layers:
+        _apply_prescale(layer, prescale_ratio)
 
     segments, total_s = build_timeline()
     total_frames = round(total_s * FPS)
@@ -264,8 +318,8 @@ def resolve_pages(project_name: str):
     photos), ...] и путь к filmstrips/, где лежат (или дособираются) готовые
     плёнки-герои."""
     upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
-    base_input = _DATA_DIR / project_name / "images_cropped"
-    base_output = _DATA_DIR / project_name / "filmstrips"
+    base_input = _project_subdir(_DATA_DIR / project_name, "images_cropped")
+    base_output = _project_subdir(_DATA_DIR / project_name, "filmstrips")
     input_dir = base_input / upd_subdir if upd_subdir else base_input
     filmstrips_dir = base_output / upd_subdir if upd_subdir else base_output
 
@@ -305,7 +359,7 @@ def main() -> int:
         project_name = input("Введите название проекта: ").strip()
 
     pages, filmstrips_dir = resolve_pages(project_name)
-    output_dir = args.output_dir or str(_DATA_DIR / project_name / "filmstrip_videos")
+    output_dir = args.output_dir or str(_project_subdir(_DATA_DIR / project_name, "filmstrip_videos"))
     os.makedirs(output_dir, exist_ok=True)
 
     if (args.block is None) != (args.page is None):

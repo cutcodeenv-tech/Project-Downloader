@@ -27,7 +27,7 @@ DEFAULT_VIDEO_DOWNLOAD_PAUSE_SECONDS = 4.0
 DEFAULT_YTDLP_RETRY_COUNT = 3
 DEFAULT_YTDLP_RETRY_BASE_SECONDS = 5.0
 
-from path_utils import get_data_dir
+from path_utils import get_data_dir, project_subdir
 from youtube_utils import youtube_url_kind
 from progress_ui import render_bar, StatusBoard
 from error_log import log_download_error
@@ -95,7 +95,9 @@ def video_already_downloaded(base_video_dir: str, video_id: str) -> bool:
     return False
 
 
-_DOWNLOAD_PROGRESS_RE = re.compile(r"\[download\]\s+([\d.]+)%")
+_DOWNLOAD_PROGRESS_RE = re.compile(
+    r"\[download\]\s+([\d.]+)%(?:\s+of\s+~?([\d.]+\S+))?(?:\s+at\s+(\S+))?(?:\s+ETA\s+(\S+))?"
+)
 _DESTINATION_RE = re.compile(r"\[download\] Destination:\s+(.+)$")
 _MERGE_RE = re.compile(r'Merging formats into "(.+)"$')
 
@@ -220,13 +222,21 @@ def download_video(
 
     label = initial_label or url
     file_fraction = 0.0
+    file_size = ""
+    file_speed = ""
+    file_eta = ""
 
     def redraw():
         overall = ((idx - 1) + file_fraction) / max(total, 1)
+        extra = "  ·  ".join(part for part in (
+            f"{file_size}" if file_size else "",
+            f"{file_speed}" if file_speed else "",
+            f"ETA {file_eta}" if file_eta else "",
+        ) if part)
         board.render([
-            f"[{idx}/{total}] {label}",
-            f"Всего:  [{render_bar(overall)}] {overall * 100:5.1f}%",
-            f"Файл:   [{render_bar(file_fraction)}] {file_fraction * 100:5.1f}%",
+            f"Всего:   [{render_bar(overall)}] {overall * 100:5.1f}%  (скачано {idx - 1}/{total}, осталось {max(total - idx + 1, 0)})",
+            f"Сейчас:  {label}",
+            f"         [{render_bar(file_fraction)}] {file_fraction * 100:5.1f}%" + (f"  {extra}" if extra else ""),
         ])
 
     redraw()
@@ -250,9 +260,13 @@ def download_video(
             dest_match = _DESTINATION_RE.search(line) or _MERGE_RE.search(line)
             if match:
                 file_fraction = float(match.group(1)) / 100
+                file_size = match.group(2) or file_size
+                file_speed = match.group(3) or ""
+                file_eta = match.group(4) or ""
                 redraw()
             elif dest_match:
                 label = os.path.basename(dest_match.group(1))
+                file_size = file_speed = file_eta = ""
                 redraw()
             elif line.startswith("[debug]"):
                 continue
@@ -304,7 +318,7 @@ def main():
         return
 
     project_dir = os.path.join(data_dir, project_name)
-    database_dir = os.path.join(project_dir, 'database')
+    database_dir = str(project_subdir(project_dir, 'database'))
 
     if not os.path.isdir(database_dir):
         print(f'❌ Проект не найден: {project_dir}')
@@ -347,8 +361,8 @@ def main():
 
     # директория для видео
     upd_subdir = os.getenv('UPD_SUBDIR', '').strip()
-    base_video_dir = os.path.join(project_dir, 'video')
-    renamed_dir = os.path.join(project_dir, 'renamed_videos')
+    base_video_dir = str(project_subdir(project_dir, 'video'))
+    renamed_dir = str(project_subdir(project_dir, 'renamed_videos'))
     video_dir = os.path.join(base_video_dir, upd_subdir) if upd_subdir else base_video_dir
     os.makedirs(video_dir, exist_ok=True)
     if upd_subdir:

@@ -8,7 +8,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from path_utils import get_data_dir, resolve_project_name
+from path_utils import get_data_dir, resolve_project_name, project_subdir
 
 
 def get_project_name():
@@ -124,7 +124,7 @@ def main():
     project_name = os.getenv("PROJECT_NAME", "").strip() or get_project_name()
 
     project_dir = os.path.join(str(data_dir), project_name)
-    video_dir = os.path.join(project_dir, 'video')
+    video_dir = str(project_subdir(project_dir, 'video'))
 
     if not os.path.exists(video_dir):
         print(f"❌ Директория с видео не найдена: {video_dir}")

@@ -21,7 +21,7 @@ try:
 except Exception:  # pragma: no cover
     requests = None
 
-from path_utils import get_data_dir
+from path_utils import get_data_dir, project_subdir
 from youtube_utils import youtube_url_kind, clean_url, extract_video_id
 _DATA_DIR = get_data_dir(__file__)
 
@@ -39,16 +39,16 @@ VIDEO_EXTENSIONS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}
 
 
 def get_project_video_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name / "video"
+    return project_subdir(_DATA_DIR / project_name, "video")
 
 def get_project_database_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name / "database"
+    return project_subdir(_DATA_DIR / project_name, "database")
 
 def get_youtube_links_csv_path(project_name: str) -> Path:
     return get_project_database_dir(project_name) / f"os_doc_{project_name}_youtube_links.csv"
 
 def get_renamed_videos_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name / "renamed_videos"
+    return project_subdir(_DATA_DIR / project_name, "renamed_videos")
 
 def framework_root() -> Path:
     return Path(__file__).resolve().parent.parent

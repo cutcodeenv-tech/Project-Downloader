@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
-from path_utils import get_data_dir
+from path_utils import get_data_dir, project_subdir
 from error_log import iter_stage_error_files
 
 _DATA_DIR = get_data_dir(__file__)
@@ -49,7 +49,7 @@ def _group_key(source: str) -> str:
 
 
 def collect_errors(project_name: str) -> list:
-    db_dir = _DATA_DIR / project_name / "database"
+    db_dir = project_subdir(_DATA_DIR / project_name, "database")
     errors = []
 
     # 1. Ошибки скачивания (новый формат: errors/stage_<N>/<step_id>.csv)
@@ -104,7 +104,7 @@ def main():
     project_name = os.getenv("PROJECT_NAME", "").strip() or get_project_name()
     print(f"Проект: {project_name}")
 
-    db_dir = _DATA_DIR / project_name / "database"
+    db_dir = project_subdir(_DATA_DIR / project_name, "database")
     if not db_dir.exists():
         print(f"❌ База данных не найдена: {db_dir}")
         return

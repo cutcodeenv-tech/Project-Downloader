@@ -30,11 +30,11 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from path_utils import get_base_dir as _get_base_dir
+from path_utils import get_base_dir as _get_base_dir, get_assets_media_dir as _get_assets_media_dir
 from photo_filmstrip import FRAME_BOXES  # позиции 1/2/3 = FRAME_BOXES[0..2]
 
 _BASE_DIR = _get_base_dir(__file__)
-_DEFAULT_BG_VIDEO = _BASE_DIR / "assets_media" / "BG_DOC_NEW.mov"
+_DEFAULT_BG_VIDEO = _get_assets_media_dir(__file__) / "BG_DOC_NEW.mov"
 _BG_START_FRAME = 140
 
 OUTPUT_W, OUTPUT_H = 1920, 1080

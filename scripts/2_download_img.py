@@ -7,7 +7,7 @@ from pathlib import Path
 import time
 import subprocess
 import sys
-from path_utils import get_data_dir as _get_data_dir
+from path_utils import get_data_dir as _get_data_dir, project_subdir as _project_subdir
 _DATA_DIR = _get_data_dir(__file__)
 
 def extract_google_image_url(url):
@@ -307,7 +307,7 @@ def read_image_links_from_csv(project_name):
     # Путь к CSV файлу с изображениями
     data_dir = str(_DATA_DIR)
     project_dir = os.path.join(data_dir, project_name)
-    database_dir = os.path.join(project_dir, 'database')
+    database_dir = str(_project_subdir(project_dir, 'database'))
     csv_file = os.path.join(database_dir, f'os_doc_{project_name}_image_links.csv')
 
     if not os.path.exists(csv_file):
@@ -429,8 +429,8 @@ def main():
         return
 
     # Создаем структуру директорий в проекте
-    pictures_dir = os.path.join(project_dir, 'images')
-    database_dir = os.path.join(project_dir, 'database')
+    pictures_dir = str(_project_subdir(project_dir, 'images'))
+    database_dir = str(_project_subdir(project_dir, 'database'))
 
     # Создаем директории
     os.makedirs(pictures_dir, exist_ok=True)
