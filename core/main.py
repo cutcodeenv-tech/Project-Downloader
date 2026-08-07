@@ -143,6 +143,9 @@ from path_utils import ensure_project_marker, write_project_marker, list_project
 from youtube_utils import is_downloadable_youtube_video
 
 
+WHISPER_MODEL_DEFAULT = "base"
+
+
 # Project structure creation function
 _REQUIRED_ASSETS = [
     "font/theater.bold-condensed.ttf",
@@ -857,6 +860,96 @@ def enrich_channels(project_name: str):
     print(f"Каналов найдено: {found}/{len(results)}")
 
 
+# Voiceover transcription function (feeds stage_xml with a ready *.words.json)
+def _find_voiceover_audio(voiceover_dir: Path):
+    for ext in ("*.wav", "*.mp3", "*.m4a", "*.flac", "*.ogg"):
+        matches = sorted(voiceover_dir.glob(ext))
+        if matches:
+            return matches[-1]
+    return None
+
+
+def _find_words_json(voiceover_dir: Path):
+    matches = sorted(voiceover_dir.glob("*.words.json"))
+    return matches[-1] if matches else None
+
+
+def _has_transcript(voiceover_dir: Path) -> bool:
+    return bool(_find_words_json(voiceover_dir) or list(voiceover_dir.glob("*.srt")) or list(voiceover_dir.glob("*.txt")))
+
+
+def _install_whisper() -> bool:
+    try:
+        import whisper  # noqa: F401
+        return True
+    except ImportError:
+        pass
+    print("⬇️  openai-whisper не найден — устанавливаю...")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--prefer-binary", "openai-whisper"],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        print(f"❌ Не удалось установить whisper:\n{(r.stderr or r.stdout)[-400:]}")
+        return False
+    print("✅ openai-whisper установлен")
+    return True
+
+
+def transcribe_voiceover(project_name: str):
+    """Транскрибирует озвучку из voiceover/ через Whisper (пословные
+    таймкоды) в <файл>.words.json — источник для шага текстового оверлея
+    (stage_xml), который сам транскрипцию больше не делает. Пропускается,
+    если расшифровка уже есть или в voiceover/ нет аудио."""
+    voiceover_dir = project_subdir(get_project_dir(project_name), "voiceover")
+
+    if _has_transcript(voiceover_dir):
+        print("♻️  Расшифровка в voiceover/ уже есть — транскрипция пропущена.")
+        return
+
+    audio_path = _find_voiceover_audio(voiceover_dir)
+    if not audio_path:
+        print(f"⏭️  Транскрипция пропущена: нет аудио в {voiceover_dir}.")
+        return
+
+    if not ask_confirm(f"Транскрибировать {audio_path.name} через Whisper сейчас?", default=True):
+        print("\n⏭️  Транскрипция пропущена — запустите Стадию 1 ещё раз, когда понадобится.")
+        return
+
+    if not _install_whisper():
+        raise RuntimeError("Не удалось установить openai-whisper.")
+    import whisper
+
+    model_name = os.getenv("WHISPER_MODEL", "").strip() or WHISPER_MODEL_DEFAULT
+    language = os.getenv("WHISPER_LANGUAGE", "").strip()
+
+    print(f"🎙  Транскрибирую (по словам): {audio_path.name}")
+    print(f"    Модель: {model_name}  Язык: {language or 'авто'}")
+    model = whisper.load_model(model_name)
+    opts = {"verbose": False, "word_timestamps": True}
+    if language:
+        opts["language"] = language
+    result = model.transcribe(str(audio_path), **opts)
+
+    segments = []
+    for seg in result.get("segments", []):
+        words = [
+            {"word": w.get("word", "").strip(), "start": float(w["start"]), "end": float(w["end"])}
+            for w in (seg.get("words") or [])
+            if w.get("word", "").strip()
+        ]
+        segments.append({
+            "start": float(seg["start"]),
+            "end": float(seg["end"]),
+            "text": (seg.get("text") or "").strip(),
+            "words": words,
+        })
+
+    out_path = voiceover_dir / f"{audio_path.stem}.words.json"
+    out_path.write_text(json.dumps({"segments": segments}, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"✅ Транскрипция сохранена: {out_path}")
+
+
 # XML placeholders creation function
 def _has_voiceover_material(project_name: str) -> bool:
     voiceover_dir = project_subdir(get_project_dir(project_name), "voiceover")
@@ -876,12 +969,30 @@ def create_xml_placeholders(project_name: str):
     script_path = SCRIPTS_DIR / "1.2_xml_placeholders.py"
     if not script_path.exists():
         raise FileNotFoundError(f"Скрипт не найден: {script_path}")
-    run_command(
-        [sys.executable, script_path],
-        cwd=BASE_DIR,
-        env=build_script_env(project_name=project_name),
-        title="Текстовый оверлей",
-    )
+    review_script = SCRIPTS_DIR / "text_overlay_align" / "helpers" / "review_matches.py"
+    matches_path = project_subdir(get_project_dir(project_name), "placeholders_xml") / "_work" / "matches.json"
+
+    from progress_ui import run_quiet
+
+    env = build_script_env(project_name=project_name)
+    result = run_quiet([sys.executable, script_path], cwd=str(BASE_DIR), env=env, title="Текстовый оверлей")
+    if result.ok:
+        return
+    if result.returncode != 3:
+        raise RuntimeError(f"Команда завершилась с ошибкой: {result.returncode}")
+
+    # Exit code 3 = "needs review": some rows are ambiguous (several
+    # candidate matches) or unmatched (none found). Run the interactive
+    # reviewer right here, in this same terminal, with real stdin -- the
+    # quiet subprocess runner above can't do that (its stdin is /dev/null).
+    print("\nЕсть строки, которые нужно подтвердить вручную:\n")
+    subprocess.run([sys.executable, str(review_script), "--matches", str(matches_path)], cwd=str(BASE_DIR), env=env)
+
+    # Re-run: TEXT_OVERLAY_FORCE=1 means proceed no matter what's still
+    # left unresolved after that one review pass (skipped rows just won't
+    # get a card) instead of blocking again.
+    force_env = dict(env, TEXT_OVERLAY_FORCE="1")
+    run_command([sys.executable, script_path], cwd=BASE_DIR, env=force_env, title="Текстовый оверлей")
 
 
 _GEOLOGICA_FONT_PATH = get_assets_dir(__file__) / "Design Preparation" / "FONT" / "Geologica" / "Geologica-VariableFont_CRSV,SHRP,slnt,wght.ttf"
@@ -1622,6 +1733,7 @@ SCRIPT_TASKS = [
 CORE_STAGES = [
     {"id": "stage_structure", "title": "Создать структуру папок", "run_mode": "stage_structure", "needs_project": True},
     {"id": "stage_parse_links", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_project": True, "needs_sheets": True},
+    {"id": "stage_transcribe", "title": "Транскрипция озвучки (Whisper, по словам)", "run_mode": "stage_transcribe", "needs_project": True},
     {"id": "stage_xml", "title": "Текстовый оверлей (по словам, без склейки)", "run_mode": "stage_xml", "needs_project": True},
     {"id": "stage_enrich", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "needs_project": True},
     {"id": "stage_author", "title": "Создать PNG-плашки источников", "run_mode": "stage_author", "needs_project": True},
@@ -1642,6 +1754,7 @@ STAGE_MAP = {stage["number"]: stage for stage in STAGES}
 FLOW_STEP_CATALOG = [
     {"id": "stage_structure", "kind": "stage", "title": "Создать структуру папок", "run_mode": "stage_structure", "stage": 1},
     {"id": "stage_parse_links", "kind": "stage", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_sheets": True, "stage": 1},
+    {"id": "stage_transcribe", "kind": "stage", "title": "Транскрипция озвучки (Whisper, по словам)", "run_mode": "stage_transcribe", "stage": 1},
     {"id": "stage_xml", "kind": "stage", "title": "Текстовый оверлей (по словам, без склейки)", "run_mode": "stage_xml", "stage": 1},
     {"id": "stage_enrich", "kind": "stage", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "stage": 1},
     {"id": "stage_images", "kind": "stage", "title": "Скачать изображения", "run_mode": "stage_images", "stage": 2},
@@ -2097,6 +2210,8 @@ def run_core_stage(run_mode: str, project_name: str):
         return create_structure()
     if run_mode == "stage_parse_links":
         return parse_links(project_name)
+    if run_mode == "stage_transcribe":
+        return transcribe_voiceover(project_name)
     if run_mode == "stage_xml":
         return create_xml_placeholders(project_name)
     if run_mode == "stage_enrich":
@@ -2342,6 +2457,7 @@ def run_selected_task_menu():
                 execute_flow_steps(project_name, image_mode or "crop", "new_project", [
                     "stage_structure",
                     "stage_parse_links",
+                    "stage_transcribe",
                     "stage_xml",
                     "stage_enrich",
                     "stage_author",
