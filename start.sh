@@ -76,7 +76,8 @@ if [[ -n "${PYTHON_BIN:-}" ]]; then
   fi
 else
   PYTHON_BIN=""
-  if ! find_working_python; then
+  # uv умеет сам принести нативный Python нужной версии — тогда системный не нужен
+  if ! find_working_python && ! command -v uv >/dev/null 2>&1; then
     install_python
     if ! find_working_python; then
       echo "После установки рабочий Python всё еще не найден."
@@ -87,9 +88,25 @@ fi
 
 VENV_DIR="$ROOT_DIR/.venv"
 if [[ ! -x "$VENV_DIR/bin/python" ]] || ! python_supported "$VENV_DIR/bin/python"; then
-  echo "Создаю локальное окружение Python: $VENV_DIR"
   rm -rf "$VENV_DIR"
-  "$PYTHON_BIN" -m venv "$VENV_DIR"
+  VENV_CREATED=""
+  # Через uv окружение получается нативным (arm64) — это нужно для mlx-whisper
+  if command -v uv >/dev/null 2>&1; then
+    echo "Создаю окружение через uv (Python 3.12): $VENV_DIR"
+    if uv venv --python 3.12 "$VENV_DIR" && uv pip install --python "$VENV_DIR/bin/python" pip; then
+      VENV_CREATED="uv"
+    else
+      rm -rf "$VENV_DIR"
+    fi
+  fi
+  if [[ -z "$VENV_CREATED" ]]; then
+    if [[ -z "$PYTHON_BIN" ]]; then
+      echo "Рабочий Python не найден, и uv недоступен."
+      exit 1
+    fi
+    echo "Создаю локальное окружение Python: $VENV_DIR"
+    "$PYTHON_BIN" -m venv "$VENV_DIR"
+  fi
 fi
 PYTHON_BIN="$VENV_DIR/bin/python"
 REQ_STAMP="$VENV_DIR/.requirements.sha256"

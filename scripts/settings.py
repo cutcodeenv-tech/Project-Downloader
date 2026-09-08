@@ -57,16 +57,16 @@ SETTINGS_FIELDS = [
     },
     {
         "key": "WHISPER_MODEL",
-        "label": "Модель Whisper для транскрипции озвучки",
+        "label": "Модель транскрипции озвучки",
         "kind": "choice",
         "choices": [
-            ("tiny", "tiny — самая быстрая, менее точная"),
-            ("base", "base"),
-            ("small", "small"),
-            ("medium", "medium"),
-            ("large", "large — самая точная, самая медленная"),
+            ("mlx-community/whisper-large-v3-turbo", "turbo — быстрая и точная (Apple Silicon)"),
+            ("mlx-community/whisper-small-mlx", "small — быстрее всех (Apple Silicon)"),
+            ("mlx-community/whisper-large-v3-mlx", "large-v3 — точнее, медленнее (Apple Silicon)"),
+            ("base", "base — запасной вариант без Apple Silicon"),
+            ("large", "large — запасной вариант, самый медленный"),
         ],
-        "default": "base",
+        "default": "mlx-community/whisper-large-v3-turbo",
         "restart_required": False,
     },
 ]
@@ -98,13 +98,23 @@ def apply_settings_to_env(current_file: str = __file__) -> None:
     data = load_settings(current_file)
     for field in SETTINGS_FIELDS:
         value = data.get(field["key"])
+        if field.get("kind") == "path":
+            value = clean_path_value(str(value or ""))
         if value:
             os.environ.setdefault(field["key"], str(value))
 
 
+def clean_path_value(value: str) -> str:
+    """Снимает кавычки, которые появляются при перетаскивании папки в терминал."""
+    value = (value or "").strip()
+    while len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        value = value[1:-1].strip()
+    return value
+
+
 def set_setting(key: str, value: str, current_file: str = __file__) -> None:
     data = load_settings(current_file)
-    value = (value or "").strip()
+    value = clean_path_value(value)
     if value:
         data[key] = value
         os.environ[key] = value
@@ -112,3 +122,48 @@ def set_setting(key: str, value: str, current_file: str = __file__) -> None:
         data.pop(key, None)
         os.environ.pop(key, None)
     save_settings(data, current_file)
+
+
+SCAN_FOLDERS_KEY = "PROJECT_SCAN_FOLDERS"
+
+
+def load_scan_folders(current_file: str = __file__) -> list:
+    """Папки, в которых искать проекты помимо стандартного корня.
+
+    Намеренно не в SETTINGS_FIELDS: это список, а apply_settings_to_env
+    умеет прокидывать в окружение только строки.
+    """
+    folders = load_settings(current_file).get(SCAN_FOLDERS_KEY)
+    if not isinstance(folders, list):
+        return []
+    return [str(item) for item in folders if str(item).strip()]
+
+
+def save_scan_folders(folders: list, current_file: str = __file__) -> None:
+    data = load_settings(current_file)
+    cleaned = []
+    for item in folders:
+        item = str(item).strip()
+        if item and item not in cleaned:
+            cleaned.append(item)
+    if cleaned:
+        data[SCAN_FOLDERS_KEY] = cleaned
+    else:
+        data.pop(SCAN_FOLDERS_KEY, None)
+    save_settings(data, current_file)
+
+
+def add_scan_folder(folder, current_file: str = __file__) -> list:
+    folder = str(Path(folder).expanduser().resolve())
+    folders = load_scan_folders(current_file)
+    if folder not in folders:
+        folders.append(folder)
+        save_scan_folders(folders, current_file)
+    return folders
+
+
+def remove_scan_folder(folder, current_file: str = __file__) -> list:
+    folder = str(Path(folder).expanduser().resolve())
+    folders = [item for item in load_scan_folders(current_file) if item != folder]
+    save_scan_folders(folders, current_file)
+    return folders

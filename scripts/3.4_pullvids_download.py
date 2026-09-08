@@ -109,6 +109,16 @@ def resolve_video_quality(value: str | None) -> str:
     return "original"
 
 
+def find_ytdlp_bin() -> str:
+    """yt-dlp рядом с текущим интерпретатором важнее того, что в PATH:
+    в PATH может висеть старая системная сборка, а YouTube ломает
+    совместимость со старыми версиями (403 на скачивании данных)."""
+    local = Path(sys.executable).parent / "yt-dlp"
+    if local.is_file() and os.access(local, os.X_OK):
+        return str(local)
+    return shutil.which("yt-dlp") or ""
+
+
 def yt_dlp_format_for_quality(quality: str) -> str:
     quality = resolve_video_quality(quality)
     if quality == "1080":
@@ -186,12 +196,12 @@ def download_video(
     initial_label: str = "",
 ) -> bool:
     os.makedirs(output_dir, exist_ok=True)
-    ytdlp_bin = shutil.which("yt-dlp")
+    ytdlp_bin = find_ytdlp_bin()
     board_owned = board is None
     board = board or StatusBoard(3)
 
     if not ytdlp_bin:
-        board.log("  ❌ yt-dlp не найден в PATH")
+        board.log("  ❌ yt-dlp не найден ни в окружении проекта, ни в PATH")
         return False
     video_quality = resolve_video_quality(os.getenv("VIDEO_QUALITY"))
     retry_count = get_ytdlp_retry_count()

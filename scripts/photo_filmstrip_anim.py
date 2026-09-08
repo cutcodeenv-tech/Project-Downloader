@@ -202,10 +202,11 @@ class BgVideoReader:
         cmd = [
             "ffmpeg", "-nostdin", "-i", self.video_path,
             "-vf", f"select='gte(n\\,{self.start_frame})',scale={self.w}:{self.h}",
-            "-vsync", "0",
+            # ffmpeg 9 удалил -vsync; современный эквивалент -vsync 0
+            "-fps_mode", "passthrough",
             "-f", "rawvideo", "-pix_fmt", "rgb24", "-",
         ]
-        self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        self._proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                        bufsize=self.frame_bytes * 4)
 
     def next_frame(self) -> Image.Image:
@@ -214,7 +215,12 @@ class BgVideoReader:
             self._open()
             buf = self._proc.stdout.read(self.frame_bytes)
             if len(buf) < self.frame_bytes:
-                raise RuntimeError("Не удалось прочитать кадр фона из BG_DOC_NEW.mov")
+                stderr = (self._proc.stderr.read() or b"").decode("utf-8", "replace").strip()
+                tail = "\n".join(stderr.splitlines()[-4:])
+                raise RuntimeError(
+                    f"Не удалось прочитать кадр фона из {os.path.basename(self.video_path)}"
+                    + (f"\nffmpeg: {tail}" if tail else "")
+                )
         return Image.frombuffer("RGB", (self.w, self.h), buf, "raw", "RGB", 0, 1).copy()
 
     def close(self):

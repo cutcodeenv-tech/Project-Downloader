@@ -119,7 +119,7 @@ def _retry_smart_cropping(project_name: str, row: dict):
 
 def _retry_gazety_direct(project_name: str, row: dict):
     project_dir = _project_dir(project_name)
-    gazety_root = project_dir / "gazety_direct"
+    gazety_root = project_subdir(project_dir, "gazety_direct")
     slug = _slug_for_url(row["url"])
     output_path = gazety_root / slug / f"{slug}.mov"
     return _retry_article(row["url"], output_path)

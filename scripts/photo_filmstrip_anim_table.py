@@ -328,7 +328,7 @@ def resolve_pages(project_name: str):
         raise RuntimeError(f"JPG файлы не найдены в директории: {input_dir}")
     blocks = group_by_block(photos)
     if not blocks:
-        raise RuntimeError(f"Ни один файл не подходит под шаблон B<row>_<idx>.jpg в {input_dir}")
+        raise RuntimeError(f"Ни один файл не подходит под шаблон <колонка><строка>_<n>.jpg в {input_dir}")
     pages = build_pages(blocks)
     return pages, filmstrips_dir
 

@@ -7,48 +7,64 @@ from datetime import datetime
 
 PROJECT_MARKER_FILENAME = ".osnovateli-project.json"
 
-# Рабочие подпапки проекта, физически разложенные по стадиям пайплайна —
-# каждая лежит внутри STAGE_DIR_NAMES[N]. Значение None — сквозная папка,
-# не привязанная к одной стадии (лежит прямо в корне проекта: errors/ уже
-# сама делится по стадиям внутри себя, video_direct/gazety_direct — ручные
-# разделы меню, не часть автоматического потока «Новый проект»).
-STAGE_DIR_NAMES = {
-    1: "01_структура_и_метаданные",
-    2: "02_скачивание_и_подготовка",
-    3: "03_упаковка",
-}
+# Раскладка папок проекта по шаблону монтажа: материал группируется по типу,
+# а не по стадии пайплайна. Ключ — внутреннее имя папки в коде, значение —
+# путь относительно корня проекта.
+ADMIN_DIR = "00_Admin"
+PROJECT_FILES_DIR = "01_Project_Files"
+SOURCES_DIR = "02_Sources"
 
 PROJECT_FOLDERS = {
-    "database": 1,
-    "placeholders_xml": 1,
-    "voiceover": 1,
-    "images": 2,
-    "images_cropped": 2,
-    "video": 2,
-    "video_motionarray": 2,
-    "renamed_videos": 2,
-    "author": 2,
-    "filmstrips": 3,
-    "filmstrip_videos": 3,
-    "articles": 3,
-    "errors": None,
-    "video_direct": None,
-    "gazety_direct": None,
+    "database": f"{ADMIN_DIR}/database",
+    "errors": f"{ADMIN_DIR}/errors",
+
+    "voiceover": f"{SOURCES_DIR}/Audio",
+
+    "placeholders_xml": f"{SOURCES_DIR}/Graphics/Placeholders",
+    "articles": f"{SOURCES_DIR}/Graphics/Web",
+    "author": f"{SOURCES_DIR}/Graphics/Photo",
+    "filmstrips": f"{SOURCES_DIR}/Graphics/Filmstrips",
+    "filmstrip_videos": f"{SOURCES_DIR}/Graphics/Filmstrips_video",
+    "gazety_direct": f"{SOURCES_DIR}/Graphics/Web Animate",
+
+    "images": f"{SOURCES_DIR}/Images",
+    "images_cropped": f"{SOURCES_DIR}/Images/Cropped",
+
+    "video": f"{SOURCES_DIR}/Video/YT",
+    "renamed_videos": f"{SOURCES_DIR}/Video/Renamed",
+    "video_motionarray": f"{SOURCES_DIR}/Video/MotionArray",
+    "video_direct": f"{SOURCES_DIR}/Video/Direct",
 }
 
-# Для обратной совместимости с уже существующими (старыми, плоскими)
-# проектами при определении «это папка проекта или нет».
-PROJECT_STRUCTURE_DIRS = tuple(STAGE_DIR_NAMES.values()) + tuple(PROJECT_FOLDERS.keys())
+# Пустые папки шаблона под проектные файлы монтажных программ.
+TEMPLATE_EXTRA_DIRS = tuple(
+    f"{PROJECT_FILES_DIR}/{app}"
+    for app in ("AfterEffects", "Audition", "DaVinci", "Illustrator", "Photoshop", "Premiere")
+)
+
+# Имена папок, по которым опознаётся папка проекта. Старые названия оставлены,
+# чтобы проекты, сделанные до перехода на шаблон, продолжали находиться в меню.
+_LEGACY_STRUCTURE_DIRS = (
+    "01_структура_и_метаданные",
+    "02_скачивание_и_подготовка",
+    "03_упаковка",
+    "database",
+    "images",
+    "video",
+    "renamed_videos",
+    "placeholders_xml",
+)
+
+PROJECT_STRUCTURE_DIRS = (ADMIN_DIR, PROJECT_FILES_DIR, SOURCES_DIR) + _LEGACY_STRUCTURE_DIRS
 
 
 def project_subdir(project_dir, name: str) -> Path:
-    """Путь к рабочей подпапке проекта — внутри нужной стадии (см.
-    PROJECT_FOLDERS), либо прямо в корне проекта для сквозных папок."""
+    """Путь к рабочей подпапке проекта по карте PROJECT_FOLDERS."""
     project_dir = Path(project_dir)
-    stage = PROJECT_FOLDERS.get(name)
-    if stage is None:
+    relative = PROJECT_FOLDERS.get(name)
+    if relative is None:
         return project_dir / name
-    return project_dir / STAGE_DIR_NAMES[stage] / name
+    return project_dir.joinpath(*relative.split("/"))
 
 
 def get_base_dir(current_file: str) -> Path:
@@ -157,6 +173,8 @@ def ensure_project_marker(project_dir: Path, project_name: str | None = None, *,
         "last_spreadsheet_mode": marker.get("last_spreadsheet_mode", ""),
         "last_spreadsheet_updated_at": marker.get("last_spreadsheet_updated_at", ""),
         "spreadsheet_history": marker.get("spreadsheet_history", []),
+        "source_file": marker.get("source_file", ""),
+        "table_source_kind": marker.get("table_source_kind", ""),
         "steps": marker.get("steps", {}),
         "notes": marker.get("notes", ""),
     }
