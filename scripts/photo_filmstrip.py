@@ -75,7 +75,10 @@ FRAME_PATTERN = [(0, False), (1, False), (2, False), (1, True), (0, True)]
 # чтобы скрыть под чёрной рамкой шаблона тонкую белую кайму по краям кадра.
 BLEED_PX = 40
 
-_FILENAME_RE = re.compile(r"^B(\d+)_(\d+)$")
+# Ссылки берутся из любых колонок таблицы, поэтому имя файла — <буква><строка>_<n>:
+# B12_1, G12_1, AB7_2. Блок сценария определяется НОМЕРОМ СТРОКИ, колонка влияет
+# только на порядок фото внутри блока.
+_FILENAME_RE = re.compile(r"^([A-Za-z]{1,2})(\d+)_(\d+)$")
 
 
 def parse_block_and_index(path: str):
@@ -83,27 +86,27 @@ def parse_block_and_index(path: str):
     m = _FILENAME_RE.match(name)
     if not m:
         return None
-    return int(m.group(1)), int(m.group(2))
+    return int(m.group(2)), m.group(1).upper(), int(m.group(3))
 
 
 def group_by_block(photos: list[str]) -> list[tuple[int, list[str]]]:
-    """Группирует фото по номеру блока (строки сценария), сортирует блоки и
-    фото внутри блока численно. Файлы, не подходящие под шаблон B<row>_<idx>,
-    пропускаются (не могут быть привязаны к блоку сценария)."""
-    blocks: dict[int, list[tuple[int, str]]] = defaultdict(list)
+    """Группирует фото по номеру строки сценария, сортирует блоки численно,
+    а фото внутри блока — по колонке и порядковому номеру. Файлы, не подходящие
+    под шаблон <колонка><строка>_<n>, пропускаются."""
+    blocks: dict[int, list[tuple[str, int, str]]] = defaultdict(list)
     skipped = 0
     for path in photos:
         parsed = parse_block_and_index(path)
         if not parsed:
             skipped += 1
             continue
-        block_id, idx = parsed
-        blocks[block_id].append((idx, path))
+        block_id, column, idx = parsed
+        blocks[block_id].append((column, idx, path))
     if skipped:
-        print(f"⚠ Пропущено файлов без блока (не подходят под B<row>_<idx>): {skipped}")
+        print(f"⚠ Пропущено файлов без блока (не подходят под <колонка><строка>_<n>): {skipped}")
     ordered = []
     for block_id in sorted(blocks):
-        paths = [p for _, p in sorted(blocks[block_id])]
+        paths = [p for _, _, p in sorted(blocks[block_id])]
         ordered.append((block_id, paths))
     return ordered
 
@@ -242,7 +245,7 @@ def main() -> int:
 
     blocks = group_by_block(photos)
     if not blocks:
-        print("❌ Ни один файл не подходит под шаблон B<row>_<idx>.jpg — блок сценария не определить")
+        print("❌ Ни один файл не подходит под шаблон <колонка><строка>_<n>.jpg — блок сценария не определить")
         return 1
 
     pages = build_pages(blocks)

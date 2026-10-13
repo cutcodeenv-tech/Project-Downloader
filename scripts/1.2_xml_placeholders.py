@@ -5,20 +5,22 @@
 её текст (+ доп. поля вроде A/B/C) точно в момент, когда она звучит.
 
 Использует пайплайн text-overlay-align (сопоставление CSV со словами
-транскрипта через rapidfuzz, тайминги по словам из Whisper) — но БЕЗ
-«плотной» склейки: пауза остаётся паузой, аудио не режется, оверлей просто
-показывает нужную карточку в нужный момент оригинальной записи.
+транскрипта через rapidfuzz) — но БЕЗ «плотной» склейки: пауза остаётся
+паузой, аудио не режется, оверлей просто показывает нужную карточку в нужный
+момент оригинальной записи.
 
 На вход:
   - CSV-сценарий (последний input_gdoc*.csv в database/) со столбцом текста
     (заголовок содержит "текст"/"text"); остальные столбцы (A/B/C, ...) идут
     доп. полями на карточке.
-  - Аудио озвучки в voiceover/ (транскрибируется Whisper с пословными
-    таймкодами; если уже есть <файл>.words.json — используется он).
+  - Готовая расшифровка озвучки в voiceover/: <файл>.words.json (пословные
+    таймкоды, например от Whisper — транскрибируется ОТДЕЛЬНЫМ шагом, не
+    этим скриптом) или .srt/.txt (тайминги на уровне фраз, сопоставление
+    грубее). Этот шаг транскрипцию сам не делает.
 
 На выход (папка placeholders_xml/):
-  - overlay.mov — прозрачный (QuickTime Animation/alpha) оверлей на весь
-    хронометраж записи.
+  - overlay_clips/ — по одному прозрачному (QuickTime Animation/alpha)
+    .mov-фрагменту на каждую строку CSV (без финальной склейки в один файл).
   - _work/ — промежуточные segments.json / matches.json / timing.json.
 
 Неоднозначные/непойманные строки: скрипт останавливается и печатает отчёт
@@ -33,7 +35,6 @@
 import glob
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -46,92 +47,21 @@ import manifest
 TOOL_DIR = SCRIPT_DIR / "text_overlay_align"
 HELPERS_DIR = TOOL_DIR / "helpers"
 
-WHISPER_MODEL_DEFAULT = "base"
-
-
-def _find_audio(voiceover_dir: Path):
-    """Авто-поиск аудиофайла для транскрипции (wav, mp3, m4a, flac, ogg)."""
-    for ext in ("*.wav", "*.mp3", "*.m4a", "*.flac", "*.ogg"):
-        matches = sorted(glob.glob(str(voiceover_dir / ext)))
-        if matches:
-            return matches[-1]
-    return None
-
 
 def _find_cached_words_json(voiceover_dir: Path):
+    """Готовая пословная расшифровка (например, из отдельного шага Whisper)."""
     matches = sorted(glob.glob(str(voiceover_dir / "*.words.json")))
     return matches[-1] if matches else None
 
 
 def _find_legacy_transcript(voiceover_dir: Path):
-    """.srt/.txt — используется только если нет аудио для Whisper (тогда
-    пословных таймкодов не будет, сопоставление грубее — на уровне фраз)."""
+    """.srt/.txt — тайминги на уровне фраз, сопоставление грубее (без
+    пословных таймкодов)."""
     for ext in ("*.srt", "*.txt"):
         matches = sorted(glob.glob(str(voiceover_dir / ext)))
         if matches:
             return matches[-1]
     return None
-
-
-def _install_whisper() -> bool:
-    try:
-        import whisper  # noqa: F401
-        return True
-    except ImportError:
-        pass
-    print("⬇️  openai-whisper не найден — устанавливаю...")
-    r = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--prefer-binary", "openai-whisper"],
-        capture_output=True, text=True,
-    )
-    if r.returncode != 0:
-        print(f"❌ Не удалось установить whisper:\n{(r.stderr or r.stdout)[-400:]}")
-        return False
-    print("✅ openai-whisper установлен")
-    return True
-
-
-def _transcribe_words(audio_path: str, voiceover_dir: Path, model_name: str, language: str):
-    """Whisper с пословными таймкодами → <стем>.words.json в voiceover_dir."""
-    if not _install_whisper():
-        return None
-    import whisper
-
-    print(f"🎙  Транскрибирую (по словам): {os.path.basename(audio_path)}")
-    print(f"    Модель: {model_name}  Язык: {language or 'авто'}")
-    try:
-        model = whisper.load_model(model_name)
-        opts = {"verbose": False, "word_timestamps": True}
-        if language:
-            opts["language"] = language
-        result = model.transcribe(audio_path, **opts)
-    except Exception as exc:
-        print(f"❌ Ошибка Whisper: {exc}")
-        return None
-
-    segments = []
-    for seg in result.get("segments", []):
-        words = [
-            {"word": w.get("word", "").strip(), "start": float(w["start"]), "end": float(w["end"])}
-            for w in (seg.get("words") or [])
-            if w.get("word", "").strip()
-        ]
-        segments.append({
-            "start": float(seg["start"]),
-            "end": float(seg["end"]),
-            "text": (seg.get("text") or "").strip(),
-            "words": words,
-        })
-
-    stem = Path(audio_path).stem
-    out_path = voiceover_dir / f"{stem}.words.json"
-    try:
-        out_path.write_text(json.dumps({"segments": segments}, ensure_ascii=False, indent=2), encoding="utf-8")
-        print(f"✅ Транскрипция (по словам) сохранена: {out_path}")
-        return str(out_path)
-    except Exception as exc:
-        print(f"❌ Не удалось сохранить транскрипт: {exc}")
-        return None
 
 
 def _run_helper(name: str, *args, title=None):
@@ -156,30 +86,19 @@ def main():
         )
     csv_path = csv_candidates[-1]
 
-    whisper_model = os.getenv("WHISPER_MODEL", "").strip() or WHISPER_MODEL_DEFAULT
-    whisper_language = os.getenv("WHISPER_LANGUAGE", "").strip()
-
     transcript_json = os.getenv("TRANSCRIPT_FILE", "").strip()
     if transcript_json and not os.path.isfile(transcript_json):
         transcript_json = ""
     if not transcript_json:
         transcript_json = _find_cached_words_json(voiceover_dir)
 
-    legacy_transcript = None
-    if not transcript_json:
-        audio_path = _find_audio(voiceover_dir)
-        if audio_path:
-            transcript_json = _transcribe_words(audio_path, voiceover_dir, whisper_model, whisper_language)
-        else:
-            legacy_transcript = _find_legacy_transcript(voiceover_dir)
-
-    transcript_path = transcript_json or legacy_transcript
+    transcript_path = transcript_json or _find_legacy_transcript(voiceover_dir)
     if not transcript_path:
-        print(
-            f"⏭️  Пропускаю шаг текстового оверлея: нет аудио и нет расшифровки в {voiceover_dir}\n"
-            "   Положите .wav/.mp3 (для Whisper) или .srt/.txt в папку voiceover/ проекта."
+        sys.exit(
+            f"❌ Нет готовой расшифровки в {voiceover_dir}\n"
+            "   Положите туда <файл>.words.json (пословные таймкоды, например от\n"
+            "   отдельного шага транскрипции) или .srt/.txt, затем запустите этот шаг ещё раз."
         )
-        return
 
     transcript_format = "json" if transcript_path.lower().endswith(".json") else (
         "srt" if transcript_path.lower().endswith(".srt") else "lines"
@@ -217,39 +136,39 @@ def main():
     matches = json.loads(matches_path.read_text(encoding="utf-8"))
     ambiguous = [m for m in matches if m.get("ambiguous")]
     unmatched = [m for m in matches if m.get("unmatched")]
-    if ambiguous or unmatched:
-        from rich.panel import Panel
-        from rich.text import Text
-        from rich import box
-        from progress_ui import console
+    force_proceed = os.getenv("TEXT_OVERLAY_FORCE", "").strip() == "1"
+    if (ambiguous or unmatched) and not force_proceed:
+        # Exit code 3 is a distinct sentinel (not a real failure): the
+        # caller (core/main.py's create_xml_placeholders) catches it,
+        # launches helpers/review_matches.py interactively so the operator
+        # can confirm/correct each row right there, then re-runs this
+        # script with TEXT_OVERLAY_FORCE=1 so it proceeds no matter what's
+        # left unresolved after that one review pass (see below).
+        print(f"⚠️  Требуется проверка: неоднозначных строк {len(ambiguous)}, непойманных {len(unmatched)}.")
+        sys.exit(3)
 
-        body = f"[warn]Требуется проверка: неоднозначных строк {len(ambiguous)}, непойманных {len(unmatched)}.[/]"
-        if match_result and match_result.output.strip():
-            body += "\n\n[muted]" + match_result.output.strip() + "[/]"
-        body += f"\n\n[muted]Откройте {matches_path} и поправьте \"chosen_index\" у неоднозначных строк, затем запустите этот шаг ещё раз.[/]"
-        console.print(Panel(
-            Text.from_markup(body), title="⚠ Текстовый оверлей", title_align="left",
-            border_style="warn", box=box.ROUNDED, padding=(1, 2),
-        ))
-        sys.exit(2)
+    if ambiguous or unmatched:
+        print(
+            f"⚠️  Продолжаю без полного разбора: {len(ambiguous)} неоднозначных строк "
+            "берут предложенный (tentative) вариант, "
+            f"{len(unmatched)} непойманных останутся без карточки."
+        )
 
     if not _run_helper("build_timing_uncut.py", "--matches", matches_path, "--out", timing_path, title="Построение таймингов").ok:
         sys.exit("❌ Не удалось построить тайминги оверлея.")
 
-    overlay_path = out_dir / "overlay.mov"
     cards_dir = work_dir / "cards"
-    clips_dir = work_dir / "overlay_clips"
+    clips_dir = out_dir / "overlay_clips"
     if not _run_helper(
         "render_overlay.py",
         "--timing", timing_path,
         "--cards-dir", cards_dir,
         "--clips-dir", clips_dir,
-        "--out", overlay_path,
         title="Рендер оверлея",
     ).ok:
         sys.exit("❌ Не удалось отрендерить оверлей.")
 
-    print(f"✅ Готово: {overlay_path}")
+    print(f"✅ Готово: {clips_dir} ({len(list(clips_dir.glob('*.mov')))} фрагмент(ов))")
 
 
 if __name__ == "__main__":

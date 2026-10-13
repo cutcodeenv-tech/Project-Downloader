@@ -4,13 +4,14 @@ For each row in timing.json, renders one static transparent PNG "card" (line
 number + script text + every non-empty extra field, e.g. ТЗ-видео/ТЗ-графика)
 via PIL with auto-fit text (font size shrinks to fit each text block's
 allotted area -- cells can hold long production-note paragraphs), encodes it
-to a short QuickTime Animation clip held for that row's [start, end) duration, then
-concatenates all clips (-c copy) into the final overlay. This scales to
-hundreds of rows far better than one giant chained ffmpeg overlay filter.
+to a short QuickTime Animation clip held for that row's [start, end) duration.
+One fragment file per CSV row is written to --clips-dir (named by line_no) --
+they are NOT concatenated into a single overlay file, so each row can be
+dropped onto the timeline independently.
 
 Usage:
     uv run helpers/render_overlay.py --timing work/timing.json \
-        [--width 1920] [--height 1080] [--fps 30] [--out out/overlay.mov]
+        [--width 1920] [--height 1080] [--fps 30] [--clips-dir out/overlay_clips]
 """
 
 from __future__ import annotations
@@ -183,8 +184,7 @@ def main() -> None:
     ap.add_argument("--height", type=int, default=1080)
     ap.add_argument("--fps", type=int, default=25)
     ap.add_argument("--cards-dir", default="work/cards")
-    ap.add_argument("--clips-dir", default="work/overlay_clips")
-    ap.add_argument("--out", default="out/overlay.mov")
+    ap.add_argument("--clips-dir", default="out/overlay_clips")
     ap.add_argument("--duration", type=float, default=None, help="total overlay duration in seconds (e.g. the untouched source audio's duration); defaults to the last row's end + 1s")
     args = ap.parse_args()
 
@@ -269,6 +269,15 @@ def main() -> None:
             render_clip(blank_path, total_frames - cursor, args.fps, tail_clip)
             sub_clips.append(tail_clip)
 
+        if not sub_clips:
+            # Every entry in this group got clamped to zero/negative duration
+            # (its whole window was swallowed by an overlapping neighbor,
+            # e.g. a stray "duplicate take" from another row landing on the
+            # same span) -- there is nothing to render for this row, and an
+            # empty concat list would make ffmpeg fail outright below.
+            print(f"  warning: line {base} has no visible duration after clamping -- no clip written for it")
+            continue
+
         group_list = parts_dir / f"{base}_list.txt"
         with group_list.open("w", encoding="utf-8") as f:
             for p in sub_clips:
@@ -281,16 +290,7 @@ def main() -> None:
         final_paths.append(final_path)
         print(f"  [{gi+1}/{len(order)}] rendered line {base} -> {final_path.name} ({len(sub_clips)} segment(s))")
 
-    list_path = clips_dir / "concat_list.txt"
-    with list_path.open("w", encoding="utf-8") as f:
-        for p in final_paths:
-            f.write(f"file '{p.resolve()}'\n")
-
-    out_path = Path(args.out)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(list_path), "-c", "copy", str(out_path)]
-    subprocess.run(cmd, check=True)
-    print(f"Wrote overlay ({len(final_paths)} row files) -> {out_path}")
+    print(f"Wrote {len(final_paths)} overlay fragment(s) -> {clips_dir}")
 
     shutil.rmtree(parts_dir, ignore_errors=True)
     print(f"Cleaned up {parts_dir} (intermediate per-segment clips)")

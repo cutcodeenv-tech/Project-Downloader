@@ -133,14 +133,22 @@ if str(SCRIPTS_DIR) not in sys.path:
 if load_dotenv is not None and os.path.exists(ENV_FILE):
     load_dotenv(ENV_FILE, override=False)
 
-from settings import apply_settings_to_env, set_setting, SETTINGS_FIELDS, SETTINGS_FIELD_MAP
+from settings import (apply_settings_to_env, set_setting, SETTINGS_FIELDS, SETTINGS_FIELD_MAP,
+                      load_scan_folders, add_scan_folder, remove_scan_folder, clean_path_value)
 apply_settings_to_env(__file__)
 
-DATA_DIR = str(Path(os.getenv("PROJECTS_ROOT") or os.getenv("DATA_DIR") or (BASE_DIR / "data")).expanduser().resolve())
+_projects_root_raw = clean_path_value(os.getenv("PROJECTS_ROOT") or os.getenv("DATA_DIR") or "")
+DATA_DIR = str(Path(_projects_root_raw or (BASE_DIR / "data")).expanduser().resolve())
+DEFAULT_DATA_DIR = DATA_DIR
 
 from photo_placeholder_ops import install_realesrgan
-from path_utils import ensure_project_marker, write_project_marker, list_projects, project_subdir, get_assets_dir, PROJECT_FOLDERS
+from path_utils import ensure_project_marker, read_project_marker, write_project_marker, list_projects, project_subdir, get_assets_dir, PROJECT_FOLDERS, TEMPLATE_EXTRA_DIRS
+import table_source
 from youtube_utils import is_downloadable_youtube_video
+
+
+WHISPER_MODEL_DEFAULT = "mlx-community/whisper-large-v3-turbo"
+WHISPER_MODEL_FALLBACK = "base"
 
 
 # Project structure creation function
@@ -164,6 +172,19 @@ def _check_assets() -> None:
 
 def get_project_dir(project_name: str) -> Path:
     return Path(DATA_DIR) / project_name
+
+
+def set_active_projects_root(path) -> str:
+    """Корень проектов на время одного действия меню: проект может лежать
+    вне стандартной папки, а стадии и подпроцессы читают DATA_DIR/PROJECTS_ROOT."""
+    global DATA_DIR
+    DATA_DIR = str(Path(path).expanduser().resolve())
+    os.environ["PROJECTS_ROOT"] = DATA_DIR
+    return DATA_DIR
+
+
+def reset_active_projects_root() -> None:
+    set_active_projects_root(DEFAULT_DATA_DIR)
 
 
 def init_project_state(project_name: str) -> dict:
@@ -244,6 +265,8 @@ def create_structure():
 
     for folder_name in PROJECT_FOLDERS:
         project_subdir(project_dir, folder_name).mkdir(parents=True, exist_ok=True)
+    for relative in TEMPLATE_EXTRA_DIRS:
+        project_dir.joinpath(*relative.split("/")).mkdir(parents=True, exist_ok=True)
 
     init_project_state(project_name)
 
@@ -367,14 +390,15 @@ def parse_links(project_name):
                 return url, match.group(1)
             print("Ошибка: не удалось извлечь SPREADSHEET_ID из ссылки.")
 
-    def save_table_to_csv(spreadsheet_id, is_reparse, service_account_info):
+    def fetch_sheet_values(spreadsheet_id, service_account_info):
         scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly']
         creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
         gc = gspread.authorize(creds)
         sh = gc.open_by_key(spreadsheet_id)
         worksheet = resolve_worksheet(sh)
-        all_values = worksheet.get_all_values()
+        return worksheet.get_all_values()
 
+    def dump_table(all_values, is_reparse):
         if is_reparse:
             timestamp = datetime.now().strftime('%d-%m-%Y_%H-%M')
             filename = f'input_gdoc_{timestamp}.csv'
@@ -386,21 +410,80 @@ def parse_links(project_name):
             csv.writer(f).writerows(all_values)
 
         print(f"Структура таблицы сохранена в: {filename} ({len(all_values)} строк)")
-        return all_values, filename
+        return filename
 
-    def extract_links_from_column_b(gdoc_filename):
-        filepath = os.path.join(database_dir, gdoc_filename)
+    def extract_links_from_columns(rows, resolved_columns=None):
+        """resolved_columns=None — сканируем все колонки подряд."""
         all_links = []
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for row_num, row in enumerate(csv.reader(f), 1):
-                if len(row) > 1 and row[1].strip():
-                    for idx, url in enumerate(re.findall(r'https?://[^\s,;"\'<>]+', row[1].strip()), 1):
-                        all_links.append({
-                            'source_address': f"B{row_num}_{idx}",
-                            'url': url,
-                        })
-        print(f"Найдено {len(all_links)} ссылок в колонке B")
+        for row_num, row in enumerate(rows, 1):
+            if resolved_columns is None:
+                cells = [(table_source.column_letter(i), value) for i, value in enumerate(row)]
+            else:
+                cells = [(letter, row[i]) for i, letter, _spec in resolved_columns if i < len(row)]
+            for letter, value in cells:
+                cell = str(value).strip()
+                if not cell:
+                    continue
+                for idx, url in enumerate(re.findall(r'https?://[^\s,;"\'<>]+', cell), 1):
+                    all_links.append({
+                        'source_address': f"{letter}{row_num}_{idx}",
+                        'url': url,
+                    })
+        print(f"Найдено {len(all_links)} ссылок")
         return all_links
+
+    def link_columns_override(rows):
+        """Обычно None (все колонки). Сузить можно переменной LINK_COLUMNS."""
+        specs = table_source.parse_columns_spec(os.getenv("LINK_COLUMNS", ""))
+        if not specs:
+            return None
+        resolved = table_source.resolve_columns(rows, specs, 1)
+        print(f"Колонки для поиска ссылок: {table_source.describe_columns(resolved)}")
+        return resolved
+
+    def resolve_source_file(project_dir, state):
+        declared = (state.get("source_file") or "").strip()
+        if declared:
+            explicit = Path(project_dir) / declared
+            if explicit.exists():
+                return explicit
+            print(f"⚠️  Указанный в маркере проекта файл не найден: {explicit}")
+        return table_source.find_local_source(project_dir)
+
+    def choose_table_source(project_name, project_dir, state):
+        """Возвращает файл-источник либо None (значит Google таблица).
+
+        Порядок: переменная окружения → запомненный выбор → вопрос в меню →
+        прежнее автоопределение.
+        """
+        if (os.getenv("SPREADSHEET_URL") or "").strip():
+            return None
+
+        found = resolve_source_file(project_dir, state)
+        remembered = (state.get("table_source_kind") or "").strip()
+
+        if remembered == "sheets":
+            return None
+        if remembered == "file" and found:
+            return found
+
+        if can_use_interactive_menu():
+            options = [("Google таблица", "sheets")]
+            if found:
+                options.append((f"Файл в папке проекта — {found.name}", "file"))
+            else:
+                print(f"\nВ папке проекта нет CSV/XLSX: {project_dir}")
+            kind = select_option("Откуда берём таблицу?", options)
+            update_project_state(project_name, lambda st: st.update({"table_source_kind": kind}))
+            return found if kind == "file" else None
+
+        return found
+
+    def announce_reparse(is_reparse):
+        if is_reparse:
+            print("ВНИМАНИЕ: Повторный парсинг. Новые данные будут добавлены после строк upd_<дата>")
+        else:
+            print("Первый парсинг этого источника")
 
     def is_youtube_url(url):
         return 'youtube.com' in url or 'youtu.be' in url
@@ -531,23 +614,31 @@ def parse_links(project_name):
                 print(f"Сохранено {len(links)} ссылок [{category}]")
         return categories
 
-    service_account_info = get_service_account_info()
-    service_email = service_account_info["client_email"]
-    print(f"\n\033[33mДайте данному email доступ 'Читатель' к таблице:\n{service_email}\033[0m\n")
     print(f"Проект: {project_name}")
 
-    spreadsheet_url, spreadsheet_id = extract_spreadsheet_id_from_url()
-    attach_project_spreadsheet(project_name, spreadsheet_url, spreadsheet_id, os.getenv("FLOW_NAME", "stage_parse_links"))
-    is_reparse = check_if_reparse(spreadsheet_url)
+    state = read_project_marker(project_dir)
+    source_file = choose_table_source(project_name, project_dir, state)
 
-    if is_reparse:
-        print("ВНИМАНИЕ: Повторный парсинг. Новые данные будут добавлены после строк upd_<дата>")
+    if source_file:
+        print(f"Источник: файл {source_file.name}")
+        is_reparse = check_if_reparse(str(source_file))
+        announce_reparse(is_reparse)
+        save_input_link_info(str(source_file), source_file.name, is_reparse)
+        all_values = table_source.read_table(source_file)
+        update_project_state(project_name, lambda st: st.update({"source_file": source_file.name}))
     else:
-        print("Первый парсинг этой ссылки")
+        service_account_info = get_service_account_info()
+        service_email = service_account_info["client_email"]
+        print(f"\n\033[33mДайте данному email доступ 'Читатель' к таблице:\n{service_email}\033[0m\n")
+        spreadsheet_url, spreadsheet_id = extract_spreadsheet_id_from_url()
+        attach_project_spreadsheet(project_name, spreadsheet_url, spreadsheet_id, os.getenv("FLOW_NAME", "stage_parse_links"))
+        is_reparse = check_if_reparse(spreadsheet_url)
+        announce_reparse(is_reparse)
+        save_input_link_info(spreadsheet_url, spreadsheet_id, is_reparse)
+        all_values = fetch_sheet_values(spreadsheet_id, service_account_info)
 
-    save_input_link_info(spreadsheet_url, spreadsheet_id, is_reparse)
-    all_values, gdoc_filename = save_table_to_csv(spreadsheet_id, is_reparse, service_account_info)
-    all_links = extract_links_from_column_b(gdoc_filename)
+    dump_table(all_values, is_reparse)
+    all_links = extract_links_from_columns(all_values, link_columns_override(all_values))
     save_links_to_csv(all_links, is_reparse)
     categorized = categorize_and_save(all_links, is_reparse)
 
@@ -857,6 +948,129 @@ def enrich_channels(project_name: str):
     print(f"Каналов найдено: {found}/{len(results)}")
 
 
+# Voiceover transcription function (feeds stage_xml with a ready *.words.json)
+def _find_voiceover_audio(voiceover_dir: Path):
+    for ext in ("*.wav", "*.mp3", "*.m4a", "*.flac", "*.ogg"):
+        matches = sorted(voiceover_dir.glob(ext))
+        if matches:
+            return matches[-1]
+    return None
+
+
+def _find_words_json(voiceover_dir: Path):
+    matches = sorted(voiceover_dir.glob("*.words.json"))
+    return matches[-1] if matches else None
+
+
+def _has_transcript(voiceover_dir: Path) -> bool:
+    return bool(_find_words_json(voiceover_dir) or list(voiceover_dir.glob("*.srt")) or list(voiceover_dir.glob("*.txt")))
+
+
+def _apple_silicon() -> bool:
+    return sys.platform == "darwin" and platform.machine() == "arm64"
+
+
+def _pip_install(package: str) -> bool:
+    print(f"⬇️  {package} не найден — устанавливаю...")
+    r = subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--prefer-binary", package],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        print(f"❌ Не удалось установить {package}:\n{(r.stderr or r.stdout)[-400:]}")
+        return False
+    print(f"✅ {package} установлен")
+    return True
+
+
+def _install_whisper() -> str:
+    """Возвращает движок транскрипции: 'mlx' (быстрый, Apple Silicon),
+    'openai' (везде) или '' если ничего не удалось поставить."""
+    if _apple_silicon():
+        try:
+            import mlx_whisper  # noqa: F401
+            return "mlx"
+        except ImportError:
+            if _pip_install("mlx-whisper"):
+                return "mlx"
+            print("⚠️  Откатываюсь на openai-whisper (медленнее).")
+
+    try:
+        import whisper  # noqa: F401
+        return "openai"
+    except ImportError:
+        pass
+    return "openai" if _pip_install("openai-whisper") else ""
+
+
+def transcribe_voiceover(project_name: str):
+    """Транскрибирует озвучку из voiceover/ через Whisper (пословные
+    таймкоды) в <файл>.words.json — источник для шага текстового оверлея
+    (stage_xml), который сам транскрипцию больше не делает. Пропускается,
+    если расшифровка уже есть или в voiceover/ нет аудио."""
+    voiceover_dir = project_subdir(get_project_dir(project_name), "voiceover")
+
+    if _has_transcript(voiceover_dir):
+        print("♻️  Расшифровка в voiceover/ уже есть — транскрипция пропущена.")
+        return
+
+    audio_path = _find_voiceover_audio(voiceover_dir)
+    if not audio_path:
+        print(f"⏭️  Транскрипция пропущена: нет аудио в {voiceover_dir}.")
+        return "skipped"
+
+    if not ask_confirm(f"Транскрибировать {audio_path.name} через Whisper сейчас?", default=True):
+        print("\n⏭️  Транскрипция пропущена — запустите Стадию 1 ещё раз, когда понадобится.")
+        return "skipped"
+
+    engine = _install_whisper()
+    if not engine:
+        raise RuntimeError("Не удалось установить движок транскрипции.")
+
+    model_name = os.getenv("WHISPER_MODEL", "").strip()
+    language = os.getenv("WHISPER_LANGUAGE", "").strip()
+
+    if engine == "mlx":
+        model_name = model_name or WHISPER_MODEL_DEFAULT
+    else:
+        # На openai-whisper имена MLX-репозиториев не работают
+        if not model_name or "/" in model_name:
+            model_name = WHISPER_MODEL_FALLBACK
+
+    print(f"🎙  Транскрибирую (по словам): {audio_path.name}")
+    print(f"    Движок: {'MLX (Apple Silicon)' if engine == 'mlx' else 'openai-whisper'}")
+    print(f"    Модель: {model_name}  Язык: {language or 'авто'}")
+
+    opts = {"word_timestamps": True}
+    if language:
+        opts["language"] = language
+
+    if engine == "mlx":
+        import mlx_whisper
+        result = mlx_whisper.transcribe(str(audio_path), path_or_hf_repo=model_name, **opts)
+    else:
+        import whisper
+        result = whisper.load_model(model_name).transcribe(str(audio_path), verbose=False, **opts)
+
+    segments = []
+    for seg in result.get("segments", []):
+        words = [
+            {"word": w.get("word", "").strip(), "start": float(w["start"]), "end": float(w["end"])}
+            for w in (seg.get("words") or [])
+            if w.get("word", "").strip()
+        ]
+        segments.append({
+            "start": float(seg["start"]),
+            "end": float(seg["end"]),
+            "text": (seg.get("text") or "").strip(),
+            "words": words,
+        })
+
+    out_path = voiceover_dir / f"{audio_path.stem}.words.json"
+    out_path.write_text(json.dumps({"segments": segments}, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"✅ Транскрипция сохранена: {out_path}")
+
+
 # XML placeholders creation function
 def _has_voiceover_material(project_name: str) -> bool:
     voiceover_dir = project_subdir(get_project_dir(project_name), "voiceover")
@@ -871,17 +1085,35 @@ def create_xml_placeholders(project_name: str):
         prompt += " Озвучки в voiceover/ пока не видно — можно пропустить и запустить этот шаг позже (Стадия 1 ещё раз, когда добавите аудио)."
     if not ask_confirm(prompt, default=has_material):
         print("\n⏭️  Текстовый оверлей пропущен — запустите Стадию 1 ещё раз, когда появится озвучка.")
-        return
+        return "skipped"
 
     script_path = SCRIPTS_DIR / "1.2_xml_placeholders.py"
     if not script_path.exists():
         raise FileNotFoundError(f"Скрипт не найден: {script_path}")
-    run_command(
-        [sys.executable, script_path],
-        cwd=BASE_DIR,
-        env=build_script_env(project_name=project_name),
-        title="Текстовый оверлей",
-    )
+    review_script = SCRIPTS_DIR / "text_overlay_align" / "helpers" / "review_matches.py"
+    matches_path = project_subdir(get_project_dir(project_name), "placeholders_xml") / "_work" / "matches.json"
+
+    from progress_ui import run_quiet
+
+    env = build_script_env(project_name=project_name)
+    result = run_quiet([sys.executable, script_path], cwd=str(BASE_DIR), env=env, title="Текстовый оверлей")
+    if result.ok:
+        return
+    if result.returncode != 3:
+        raise RuntimeError(f"Команда завершилась с ошибкой: {result.returncode}")
+
+    # Exit code 3 = "needs review": some rows are ambiguous (several
+    # candidate matches) or unmatched (none found). Run the interactive
+    # reviewer right here, in this same terminal, with real stdin -- the
+    # quiet subprocess runner above can't do that (its stdin is /dev/null).
+    print("\nЕсть строки, которые нужно подтвердить вручную:\n")
+    subprocess.run([sys.executable, str(review_script), "--matches", str(matches_path)], cwd=str(BASE_DIR), env=env)
+
+    # Re-run: TEXT_OVERLAY_FORCE=1 means proceed no matter what's still
+    # left unresolved after that one review pass (skipped rows just won't
+    # get a card) instead of blocking again.
+    force_env = dict(env, TEXT_OVERLAY_FORCE="1")
+    run_command([sys.executable, script_path], cwd=BASE_DIR, env=force_env, title="Текстовый оверлей")
 
 
 _GEOLOGICA_FONT_PATH = get_assets_dir(__file__) / "Design Preparation" / "FONT" / "Geologica" / "Geologica-VariableFont_CRSV,SHRP,slnt,wght.ttf"
@@ -945,6 +1177,16 @@ def _format_eta(seconds: int | float | None) -> str:
     if hours:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
     return f"{minutes:02d}:{secs:02d}"
+
+
+def find_ytdlp_bin() -> str:
+    """yt-dlp рядом с текущим интерпретатором важнее того, что в PATH:
+    в PATH может висеть старая системная сборка, а YouTube ломает
+    совместимость со старыми версиями (403 на скачивании данных)."""
+    local = Path(sys.executable).parent / "yt-dlp"
+    if local.is_file() and os.access(local, os.X_OK):
+        return str(local)
+    return shutil.which("yt-dlp") or ""
 
 
 def resolve_video_quality(value: str | None) -> str:
@@ -1090,12 +1332,12 @@ def _download_video_direct(
     from progress_ui import render_bar, StatusBoard
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    ytdlp_bin = shutil.which("yt-dlp")
+    ytdlp_bin = find_ytdlp_bin()
     board_owned = board is None
     board = board or StatusBoard(3)
 
     if not ytdlp_bin:
-        board.log("  ❌ yt-dlp не найден в PATH")
+        board.log("  ❌ yt-dlp не найден ни в окружении проекта, ни в PATH")
         return False
     video_quality = resolve_video_quality(os.getenv("VIDEO_QUALITY"))
     cookies_from_browser = get_cookies_from_browser()
@@ -1622,6 +1864,7 @@ SCRIPT_TASKS = [
 CORE_STAGES = [
     {"id": "stage_structure", "title": "Создать структуру папок", "run_mode": "stage_structure", "needs_project": True},
     {"id": "stage_parse_links", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_project": True, "needs_sheets": True},
+    {"id": "stage_transcribe", "title": "Транскрипция озвучки (Whisper, по словам)", "run_mode": "stage_transcribe", "needs_project": True},
     {"id": "stage_xml", "title": "Текстовый оверлей (по словам, без склейки)", "run_mode": "stage_xml", "needs_project": True},
     {"id": "stage_enrich", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "needs_project": True},
     {"id": "stage_author", "title": "Создать PNG-плашки источников", "run_mode": "stage_author", "needs_project": True},
@@ -1642,6 +1885,7 @@ STAGE_MAP = {stage["number"]: stage for stage in STAGES}
 FLOW_STEP_CATALOG = [
     {"id": "stage_structure", "kind": "stage", "title": "Создать структуру папок", "run_mode": "stage_structure", "stage": 1},
     {"id": "stage_parse_links", "kind": "stage", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_sheets": True, "stage": 1},
+    {"id": "stage_transcribe", "kind": "stage", "title": "Транскрипция озвучки (Whisper, по словам)", "run_mode": "stage_transcribe", "stage": 1},
     {"id": "stage_xml", "kind": "stage", "title": "Текстовый оверлей (по словам, без склейки)", "run_mode": "stage_xml", "stage": 1},
     {"id": "stage_enrich", "kind": "stage", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "stage": 1},
     {"id": "stage_images", "kind": "stage", "title": "Скачать изображения", "run_mode": "stage_images", "stage": 2},
@@ -1765,15 +2009,14 @@ def install_realesrgan_dependency():
 
 
 def install_whisper_dependency():
-    print("\n=== Проверка openai-whisper ===")
-    try:
-        import whisper  # noqa: F401
-        print("✓ openai-whisper уже установлен")
-        return
-    except ImportError:
-        pass
-    run_command([sys.executable, "-m", "pip", "install", "--prefer-binary", "openai-whisper"])
-    print("✓ openai-whisper установлен")
+    print("\n=== Проверка движка транскрипции ===")
+    engine = _install_whisper()
+    if engine == "mlx":
+        print("✓ mlx-whisper готов (Apple Silicon)")
+    elif engine == "openai":
+        print("✓ openai-whisper готов")
+    else:
+        print("✗ Не удалось поставить движок транскрипции")
 
 
 def install_node_dependency():
@@ -1924,6 +2167,31 @@ def ask_text(message):
     return input(message).strip()
 
 
+def select_many(title, options, preselected=None):
+    """Чек-лист: options — [(label, value)], preselected — какие отмечены сразу."""
+    preselected = set(preselected or [])
+    if can_use_interactive_menu() and hasattr(questionary, "checkbox"):
+        choices = [Choice(label, value=value, checked=value in preselected) for label, value in options]
+        answer = questionary.checkbox(title, choices=choices, style=QUESTIONARY_STYLE).ask()
+        if answer is None:
+            raise KeyboardInterrupt
+        return answer
+
+    print(f"\n{title}")
+    for idx, (label, value) in enumerate(options, 1):
+        mark = "x" if value in preselected else " "
+        print(f"  {idx}) [{mark}] {label}")
+    raw = input("Номера через запятую (пусто — как отмечено): ").strip()
+    if not raw:
+        return [value for _, value in options if value in preselected]
+    picked = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part.isdigit() and 1 <= int(part) <= len(options):
+            picked.append(options[int(part) - 1][1])
+    return picked
+
+
 def ask_confirm(message, default=True):
     if can_use_interactive_menu():
         answer = questionary.confirm(message, default=default, style=QUESTIONARY_STYLE).ask()
@@ -1937,24 +2205,71 @@ def ask_confirm(message, default=True):
     return answer in {"y", "yes", "д", "да"}
 
 
+def project_scan_roots() -> list:
+    roots = [Path(DEFAULT_DATA_DIR)]
+    for folder in load_scan_folders(__file__):
+        path = Path(folder).expanduser()
+        if path not in roots:
+            roots.append(path)
+    return roots
+
+
+def find_all_projects() -> list:
+    """Проекты из стандартного корня и всех запомненных папок."""
+    found = []
+    seen = set()
+    for root in project_scan_roots():
+        try:
+            if not root.is_dir():
+                if root != Path(DEFAULT_DATA_DIR):
+                    print(f"⚠️  Папка недоступна, пропускаю: {root}")
+                continue
+            items = list_projects(root)
+        except OSError as exc:
+            print(f"⚠️  Не удалось прочитать {root}: {exc}")
+            continue
+        for item in items:
+            key = str(Path(item["path"]).resolve())
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(item)
+    return sorted(found, key=lambda item: (Path(item["path"]).name.lower(), item["path"]))
+
+
+def project_menu_options(projects: list) -> list:
+    names = [Path(item["path"]).name for item in projects]
+    options = []
+    for item, name in zip(projects, names):
+        label = name if names.count(name) == 1 else f"{name} — {Path(item['path']).parent}"
+        options.append((label, item["path"]))
+    return options
+
+
+def activate_project_path(project_path) -> str:
+    """Делает папку проекта активной: корнем становится её родитель."""
+    project_path = Path(project_path)
+    set_active_projects_root(project_path.parent)
+    project_name = project_path.name
+    os.environ["PROJECT_NAME"] = project_name
+    return project_name
+
+
 def list_existing_projects():
-    data_path = Path(DATA_DIR)
-    if not data_path.exists():
-        return []
-    return sorted(project.get("name") or Path(project.get("path") or "").name for project in list_projects(data_path))
+    return sorted({Path(item["path"]).name for item in find_all_projects()})
 
 
 def select_project_name():
-    projects = list_existing_projects()
+    projects = find_all_projects()
     if projects:
         create_value = "__create_new_project__"
-        options = [(name, name) for name in projects]
+        options = project_menu_options(projects)
         options.append(("Создать новый проект", create_value))
         choice = select_option("Выбор проекта", options)
         if choice != create_value:
-            os.environ["PROJECT_NAME"] = choice
-            print(f"Проект: {choice}")
-            return choice
+            project_name = activate_project_path(choice)
+            print(f"Проект: {project_name}")
+            return project_name
 
         while True:
             project_name = ask_text("Введите название нового проекта: ")
@@ -2052,6 +2367,8 @@ def run_core_stage(run_mode: str, project_name: str):
         return create_structure()
     if run_mode == "stage_parse_links":
         return parse_links(project_name)
+    if run_mode == "stage_transcribe":
+        return transcribe_voiceover(project_name)
     if run_mode == "stage_xml":
         return create_xml_placeholders(project_name)
     if run_mode == "stage_enrich":
@@ -2097,8 +2414,9 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
             }
         }))
         try:
+            step_result = None
             if step["kind"] == "stage":
-                run_core_stage(step["run_mode"], project_name)
+                step_result = run_core_stage(step["run_mode"], project_name)
             else:
                 task = SCRIPT_TASK_MAP[step["script_id"]]
                 run_script_task(task, project_name=project_name, image_mode=image_mode)
@@ -2126,8 +2444,9 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
             }))
             update_project_state(project_name, lambda state: state.update({"status": "failed"}))
             raise
-        update_project_state(project_name, lambda state, step_id=step_id: state.setdefault("steps", {}).setdefault(step_id, {}).update({
-            "status": "done",
+        final_status = "skipped" if step_result == "skipped" else "done"
+        update_project_state(project_name, lambda state, step_id=step_id, st=final_status: state.setdefault("steps", {}).setdefault(step_id, {}).update({
+            "status": st,
             "finished_at": datetime.now().isoformat(timespec="seconds"),
         }))
 
@@ -2154,7 +2473,174 @@ def ask_new_project_name() -> str:
         return name
 
 
+def ask_project_location(project_name: str) -> Path:
+    """Где создать папку проекта: стандартный корень, запомненная папка или свой путь."""
+    default_root = Path(DEFAULT_DATA_DIR)
+    if not can_use_interactive_menu():
+        set_active_projects_root(default_root)
+        return default_root
+
+    custom_value = "__custom_path__"
+    options = [(f"Стандартная папка — {default_root}", str(default_root))]
+    for folder in load_scan_folders(__file__):
+        path = Path(folder).expanduser()
+        if path != default_root:
+            options.append((str(path), str(path)))
+    options.append(("Указать свой путь…", custom_value))
+
+    choice = select_option(f"Где создать папку проекта «{project_name}»?", options)
+
+    if choice == custom_value:
+        while True:
+            answer = ask_text("Путь к папке, внутри которой создать проект: ")
+            if not answer:
+                print("Путь не может быть пустым.")
+                continue
+            root = Path(answer).expanduser().resolve()
+            if not root.is_dir():
+                if not ask_confirm(f"Папки {root} нет. Создать?"):
+                    continue
+                try:
+                    root.mkdir(parents=True, exist_ok=True)
+                except OSError as exc:
+                    print(f"Не удалось создать папку: {exc}")
+                    continue
+            break
+        add_scan_folder(root, __file__)
+    else:
+        root = Path(choice)
+
+    set_active_projects_root(root)
+    print(f"Папка проекта: {root / project_name}")
+    return root
+
+
 _STAGE_STATUS_MARK = {"done": "✓", "partial": "…", "pending": " "}
+
+
+def _artifact_structure(project_name: str) -> bool:
+    return project_subdir(get_project_dir(project_name), "database").is_dir()
+
+
+def _artifact_parse_links(project_name: str) -> bool:
+    database_dir = project_subdir(get_project_dir(project_name), "database")
+    return (database_dir / f"os_doc_{project_name}_all_links.csv").is_file()
+
+
+def _artifact_transcribe(project_name: str) -> bool:
+    return _has_transcript(project_subdir(get_project_dir(project_name), "voiceover"))
+
+
+def _artifact_xml(project_name: str) -> bool:
+    clips = project_subdir(get_project_dir(project_name), "placeholders_xml") / "overlay_clips"
+    return clips.is_dir() and any(clips.iterdir())
+
+
+def _artifact_enrich(project_name: str) -> bool:
+    database_dir = project_subdir(get_project_dir(project_name), "database")
+    if (database_dir / f"os_doc_{project_name}_channels.csv").is_file():
+        return True
+    # Обогащать нечего, если YouTube-ссылок в проекте не было
+    return not (database_dir / f"os_doc_{project_name}_youtube_links.csv").is_file()
+
+
+def _wave_dir(base):
+    """Папка текущей волны правок, если она задана."""
+    upd_subdir = os.getenv("UPD_SUBDIR", "").strip()
+    return base / upd_subdir if upd_subdir else base
+
+
+def _expected_filmstrip_pages(project_name: str):
+    """Страницы плёнки, которые должны существовать при текущем наборе фото."""
+    from photo_filmstrip import group_by_block, build_pages
+
+    cropped = _wave_dir(project_subdir(get_project_dir(project_name), "images_cropped"))
+    if not cropped.is_dir():
+        return []
+    photos = sorted(str(p) for p in cropped.iterdir() if p.suffix.lower() in (".jpg", ".jpeg"))
+    if not photos:
+        return []
+    import contextlib, io
+    with contextlib.redirect_stdout(io.StringIO()):   # group_by_block печатает статистику
+        return build_pages(group_by_block(photos))
+
+
+def _artifact_filmstrip(project_name: str) -> bool:
+    pages = _expected_filmstrip_pages(project_name)
+    if not pages:
+        return False
+    filmstrips = _wave_dir(project_subdir(get_project_dir(project_name), "filmstrips"))
+    return all((filmstrips / f"B{block_id}_p{page_idx}.jpg").is_file()
+               for block_id, page_idx, _ in pages)
+
+
+def _artifact_filmstrip_anim(project_name: str) -> bool:
+    pages = _expected_filmstrip_pages(project_name)
+    if not pages:
+        return False
+    videos_dir = _wave_dir(project_subdir(get_project_dir(project_name), "filmstrip_videos"))
+    if not videos_dir.is_dir():
+        return False
+    videos = [f for f in videos_dir.iterdir() if f.suffix.lower() in (".mp4", ".mov")]
+    return len(videos) >= len(pages)
+
+
+def _artifact_screenshots(project_name: str) -> bool:
+    database_dir = project_subdir(get_project_dir(project_name), "database")
+    links_csv = database_dir / f"os_doc_{project_name}_other_links.csv"
+    if not links_csv.is_file():
+        return True   # обычных ссылок не было — делать нечего
+
+    expected = set()
+    with open(links_csv, "r", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            src = (row.get("source_address") or "").strip()
+            if src and not src.startswith("upd_"):
+                expected.add(src)
+    if not expected:
+        return True
+
+    articles = _wave_dir(project_subdir(get_project_dir(project_name), "articles"))
+    if not articles.is_dir():
+        return False
+    done = {f.stem for f in articles.iterdir() if f.suffix.lower() in (".mov", ".mp4")}
+    return expected.issubset(done)
+
+
+# Шаг считается выполненным, только если и в маркере «done», и результат
+# действительно лежит на диске — файлы могли удалить руками, а мог появиться
+# и новый материал, под который шаг нужно прогнать заново.
+STEP_ARTIFACT_CHECKS = {
+    "stage_structure": _artifact_structure,
+    "stage_parse_links": _artifact_parse_links,
+    "stage_transcribe": _artifact_transcribe,
+    "stage_xml": _artifact_xml,
+    "stage_enrich": _artifact_enrich,
+    "photo_filmstrip": _artifact_filmstrip,
+    "photo_filmstrip_anim": _artifact_filmstrip_anim,
+    "screenshots": _artifact_screenshots,
+}
+
+
+def effective_step_status(project_name: str, state: dict, step_id: str) -> str:
+    """Статус шага с поправкой на диск: маркер может отставать от реальности
+    (файлы удалили руками) или опережать её (проект собран до появления
+    маркера). Ошибка и прерывание остаются как есть — их нужно видеть."""
+    status = (state.get("steps") or {}).get(step_id, {}).get("status") or "pending"
+    if status in ("failed", "interrupted"):
+        return status
+
+    check = STEP_ARTIFACT_CHECKS.get(step_id)
+    if check is None:
+        return status
+    try:
+        has_artifact = check(project_name)
+    except OSError:
+        has_artifact = False
+
+    if has_artifact:
+        return "done"
+    return "pending" if status == "done" else status
 
 
 def stage_status(state: dict, stage_number: int) -> str:
@@ -2226,6 +2712,28 @@ def run_pipeline_for_project(project_name: str, image_mode: str):
         state = init_project_state(project_name)
         _print_stage_checklist(project_name, state, stage_to_run, step_ids)
 
+        # Стадии 1 и 3 переиспользуемы: их шаги можно доделывать по одному,
+        # поэтому уже выполненные не предлагаются заново. В стадии 2 каждый
+        # запуск добирает новый материал, там выбор шагов не нужен.
+        if stage_to_run in (1, 3):
+            marks = {"done": "✓", "skipped": "⏭", "failed": "✗", "interrupted": "→"}
+            options = []
+            preselected = []
+            for step_id in step_ids:
+                status = effective_step_status(project_name, state, step_id)
+                options.append((f"[{marks.get(status, ' ')}] {FLOW_STEP_MAP[step_id]['title']}", step_id))
+                if status != "done":
+                    preselected.append(step_id)
+
+            if not preselected:
+                print("\nВсё в этой стадии уже сделано.")
+            step_ids = select_many("Какие шаги выполнить? (пробел — отметить, Enter — запустить)",
+                                   options, preselected)
+            if not step_ids:
+                print("Ничего не выбрано.")
+                stage_to_run = None
+                continue
+
         try:
             execute_flow_steps(project_name, image_mode, "new_project", step_ids)
         except KeyboardInterrupt:
@@ -2254,6 +2762,7 @@ def run_new_project():
     """Новый проект: только имя, без списка прошлых проектов. Дальше —
     выбор и запуск стадий через общий движок."""
     project_name = ask_new_project_name()
+    ask_project_location(project_name)
     image_mode = select_image_processing_mode()
     print(f"\n=== Новый проект: {project_name} ===")
     run_pipeline_for_project(project_name, image_mode)
@@ -2262,14 +2771,13 @@ def run_new_project():
 def run_continue_project():
     """Продолжить работу над проектом: список существующих проектов,
     дальше — тот же движок стадий (скрипт сам знает, что уже сделано)."""
-    projects = list_existing_projects()
+    projects = find_all_projects()
     if not projects:
         print("Нет существующих проектов. Используйте «Новый проект».")
         return
 
-    options = [(name, name) for name in projects]
-    project_name = select_option("Продолжить работу над проектом", options)
-    os.environ["PROJECT_NAME"] = project_name
+    choice = select_option("Продолжить работу над проектом", project_menu_options(projects))
+    project_name = activate_project_path(choice)
     image_mode = select_image_processing_mode()
     run_pipeline_for_project(project_name, image_mode)
 
@@ -2297,6 +2805,7 @@ def run_selected_task_menu():
                 execute_flow_steps(project_name, image_mode or "crop", "new_project", [
                     "stage_structure",
                     "stage_parse_links",
+                    "stage_transcribe",
                     "stage_xml",
                     "stage_enrich",
                     "stage_author",
@@ -2361,7 +2870,7 @@ def run_direct_video_download():
         return
 
     project_dir = Path(DATA_DIR) / project_name
-    video_direct_root = project_dir / "video_direct"
+    video_direct_root = project_subdir(project_dir, "video_direct")
     video_direct_root.mkdir(parents=True, exist_ok=True)
 
     print(f"\n📁 Корень: video_direct/ (отдельная папка на каждое видео)")
@@ -2475,7 +2984,7 @@ def run_gazety_generation():
     from progress_ui import render_bar, StatusBoard
 
     project_dir = Path(DATA_DIR) / project_name
-    gazety_root = project_dir / "gazety_direct"
+    gazety_root = project_subdir(project_dir, "gazety_direct")
     gazety_root.mkdir(parents=True, exist_ok=True)
 
     print(f"\n📁 Корень: gazety_direct/ (отдельная папка на каждую статью)")
@@ -2558,16 +3067,59 @@ def _current_setting_display(field: dict) -> str:
     return value
 
 
+def run_scan_folders_menu():
+    """Папки, в которых искать проекты помимо стандартного корня."""
+    while True:
+        folders = load_scan_folders(__file__)
+        print(f"\nСтандартная папка: {DEFAULT_DATA_DIR}")
+        if folders:
+            print("Дополнительные папки:")
+            for folder in folders:
+                mark = "" if Path(folder).is_dir() else "  (недоступна)"
+                print(f"  • {folder}{mark}")
+        else:
+            print("Дополнительных папок нет.")
+
+        options = [("Добавить папку", "add")]
+        if folders:
+            options.append(("Убрать папку", "remove"))
+        options.append(("Назад", "back"))
+        choice = select_option("Папки, где искать проекты", options)
+
+        if choice == "back":
+            return
+        if choice == "add":
+            answer = ask_text("Путь к папке: ")
+            if not answer:
+                continue
+            folder = Path(answer).expanduser().resolve()
+            if not folder.is_dir():
+                print(f"Папка не найдена: {folder}")
+                continue
+            add_scan_folder(folder, __file__)
+            print(f"✓ Добавлено: {folder}")
+        elif choice == "remove":
+            target = select_option("Какую папку убрать?", [(f, f) for f in folders] + [("Отмена", "")])
+            if target:
+                remove_scan_folder(target, __file__)
+                print(f"✓ Убрано: {target}")
+
+
 def run_settings_menu():
     while True:
         options = [
             (f"{field['label']}: {_current_setting_display(field)}", field["key"])
             for field in SETTINGS_FIELDS
         ]
+        folders_count = len(load_scan_folders(__file__))
+        options.append((f"Папки, где искать проекты: {folders_count} доп.", "__scan_folders__"))
         options.append(("Назад", "back"))
         choice = select_option("Настройки", options)
         if choice == "back":
             return
+        if choice == "__scan_folders__":
+            run_scan_folders_menu()
+            continue
 
         field = SETTINGS_FIELD_MAP[choice]
         if field["kind"] == "choice":
@@ -2577,7 +3129,11 @@ def run_settings_menu():
             current = os.getenv(field["key"], "").strip()
             print(f"\n{field['label']}")
             print(f"Текущее: {current or '(по умолчанию)'}")
-            new_value = ask_text("Новый путь (пусто — сбросить на умолчание): ")
+            new_value = clean_path_value(ask_text("Новый путь (пусто — сбросить на умолчание): "))
+            if new_value and not Path(new_value).expanduser().is_dir():
+                print(f"⚠️  Папки нет: {new_value}")
+                if not ask_confirm("Всё равно сохранить?", default=False):
+                    continue
 
         set_setting(field["key"], new_value, __file__)
         if new_value:
@@ -2730,6 +3286,7 @@ def main_menu():
                     f"новых коммитов на GitHub[/]"
                 )
 
+            reset_active_projects_root()
             choice = select_option(
                 "Главное меню",
                 [
