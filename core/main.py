@@ -1776,50 +1776,6 @@ def install_whisper_dependency():
     print("✓ openai-whisper установлен")
 
 
-def install_docker_desktop():
-    print("\n=== Проверка Docker Desktop / Docker Compose ===")
-    docker_ok = shutil.which("docker") is not None
-    compose_ok = False
-
-    if docker_ok:
-        try:
-            compose_ok = subprocess.run(
-                ["docker", "compose", "version"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            ).returncode == 0
-        except Exception:
-            compose_ok = False
-
-    if docker_ok and compose_ok:
-        print("✓ Docker и Docker Compose уже доступны")
-        return
-
-    system = platform.system().lower()
-    if system == "darwin" and shutil.which("brew"):
-        run_command(["brew", "install", "--cask", "docker"])
-        if shutil.which("open"):
-            run_command(["open", "-a", "Docker"], continue_on_error=True)
-        print("Откройте Docker Desktop и дождитесь статуса Running перед скачиванием YouTube.")
-        return
-
-    if system == "windows" and shutil.which("winget"):
-        run_command([
-            "winget",
-            "install",
-            "--id",
-            "Docker.DockerDesktop",
-            "-e",
-            "--accept-package-agreements",
-            "--accept-source-agreements",
-        ])
-        print("Запустите Docker Desktop перед скачиванием YouTube.")
-        return
-
-    print("⚠️  Docker Desktop не найден и не установлен автоматически.")
-    print("Установите Docker Desktop вручную: https://www.docker.com/products/docker-desktop/")
-
-
 def install_node_dependency():
     print("\n=== Проверка Node.js/npm ===")
     if shutil.which("node") and shutil.which("npm"):
@@ -1905,7 +1861,6 @@ def install_all_dependencies():
     if install_node_dependency():
         install_paper_pipeline_dependency()
     check_chrome_for_puppeteer()
-    install_docker_desktop()
     print("\n\033[32m=== Зависимости проверены ===\033[0m")
 
 
