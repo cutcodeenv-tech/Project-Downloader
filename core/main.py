@@ -8,9 +8,6 @@ import shutil
 import platform
 import importlib
 import subprocess
-import traceback
-import textwrap
-import urllib.parse
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, unquote
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -100,9 +97,6 @@ def clean_url(url: str) -> str:
 
 class Logger:
     def __init__(self):
-        self.error_count = 0
-        self.success_count = 0
-        self.cache_hits = 0
         self.stats = {
             "youtube": {"success": 0, "error": 0},
             "unknown_host": 0,
@@ -117,9 +111,8 @@ class Logger:
         sys.stdout.flush()
 
     def info(self, msg): self._write("INFO", msg)
-    def error(self, msg): self.error_count += 1; self._write("ERROR", msg)
     def warning(self, msg): self._write("WARN", msg)
-    def success(self, msg): self.success_count += 1; self._write("SUCCESS", msg)
+    def success(self, msg): self._write("SUCCESS", msg)
 
 
 DEFAULT_BASE_DIR = Path(__file__).resolve().parent.parent
@@ -141,7 +134,6 @@ _projects_root_raw = clean_path_value(os.getenv("PROJECTS_ROOT") or os.getenv("D
 DATA_DIR = str(Path(_projects_root_raw or (BASE_DIR / "data")).expanduser().resolve())
 DEFAULT_DATA_DIR = DATA_DIR
 
-from photo_placeholder_ops import install_realesrgan
 from path_utils import ensure_project_marker, read_project_marker, write_project_marker, list_projects, project_subdir, get_assets_dir, PROJECT_FOLDERS, TEMPLATE_EXTRA_DIRS
 import table_source
 from youtube_utils import is_downloadable_youtube_video
@@ -167,7 +159,7 @@ def _check_assets() -> None:
     for p in missing:
         print(f"   • {assets_dir / p}")
     print(f"\033[33m   Положите их в папку: {assets_dir}\033[0m")
-    print(f"\033[33m   (или укажите свою через переменную окружения ASSETS_DIR)\033[0m\n")
+    print("\033[33m   (или укажите свою через переменную окружения ASSETS_DIR)\033[0m\n")
 
 
 def get_project_dir(project_name: str) -> Path:
@@ -371,7 +363,6 @@ def parse_links(project_name):
                 return sh.worksheet(user_title)
             except gspread.exceptions.WorksheetNotFound:
                 print("Лист не найден, попробуйте снова.")
-        raise gspread.exceptions.WorksheetNotFound("Не удалось определить рабочий лист.")
 
     def extract_spreadsheet_id_from_url():
         # Non-interactive mode: read from env var (set by web UI)
@@ -640,7 +631,7 @@ def parse_links(project_name):
     dump_table(all_values, is_reparse)
     all_links = extract_links_from_columns(all_values, link_columns_override(all_values))
     save_links_to_csv(all_links, is_reparse)
-    categorized = categorize_and_save(all_links, is_reparse)
+    categorize_and_save(all_links, is_reparse)
 
     # Сразу генерируем pulltube_links.txt и motionarray_links.txt
     _generate_pulltube_links(database_dir, project_name, is_reparse)
@@ -884,7 +875,7 @@ def enrich_channels(project_name: str):
 
     csv_file = os.path.join(database_dir, f'os_doc_{project_name}_youtube_links.csv')
     if not os.path.exists(csv_file):
-        print(f"Файл youtube_links.csv не найден, обогащение каналов пропущено.")
+        print("Файл youtube_links.csv не найден, обогащение каналов пропущено.")
         return
 
     links: List[Tuple[str, str]] = []
@@ -922,7 +913,6 @@ def enrich_channels(project_name: str):
         if url in cache:
             channel, title = cache[url]
             if channel:
-                logger.cache_hits += 1
                 results.append((source_address, url, channel, title))
                 continue
         channel, title = get_channel_and_title_for_url(session, url, logger)
@@ -1150,35 +1140,6 @@ def _make_author_png(channel_name: str, output_path: Path):
         img.save(output_path, 'PNG')
 
 
-def _format_bytes(num: float | None) -> str:
-    if not num:
-        return "?"
-    units = ["B", "KiB", "MiB", "GiB"]
-    value = float(num)
-    for unit in units:
-        if value < 1024 or unit == units[-1]:
-            return f"{value:.1f}{unit}"
-        value /= 1024
-    return f"{value:.1f}GiB"
-
-
-def _format_speed(num: float | None) -> str:
-    if not num:
-        return "?"
-    return f"{_format_bytes(num)}/s"
-
-
-def _format_eta(seconds: int | float | None) -> str:
-    if seconds is None:
-        return "??:??"
-    total = max(0, int(seconds))
-    minutes, secs = divmod(total, 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-    return f"{minutes:02d}:{secs:02d}"
-
-
 def find_ytdlp_bin() -> str:
     """yt-dlp рядом с текущим интерпретатором важнее того, что в PATH:
     в PATH может висеть старая системная сборка, а YouTube ломает
@@ -1258,58 +1219,6 @@ def is_ytdlp_rate_limited(text: str) -> bool:
         or "rate limit" in lowered
         or "http error 429" in lowered
     )
-
-
-class _YTDLPLogger:
-    def debug(self, msg):
-        text = (msg or "").strip()
-        if text and not text.startswith("[debug]"):
-            print(f"    {text}", flush=True)
-
-    def warning(self, msg):
-        text = (msg or "").strip()
-        if text:
-            print(f"    {text}", flush=True)
-
-    def error(self, msg):
-        text = (msg or "").strip()
-        if text:
-            print(f"    {text}", flush=True)
-
-
-class _ProgressPrinter:
-    def __init__(self):
-        self.spinner_frames = "|/-\\"
-        self.spinner_idx = 0
-        self.active = False
-
-    def clear(self):
-        if self.active:
-            print(flush=True)
-            self.active = False
-
-    def hook(self, data):
-        status = data.get("status")
-        if status == "downloading":
-            downloaded = data.get("downloaded_bytes") or 0
-            total = data.get("total_bytes") or data.get("total_bytes_estimate")
-            percent = (downloaded / total * 100) if total else 0.0
-            line = (
-                f"[download] {percent:5.1f}% of {_format_bytes(total)} "
-                f"at {_format_speed(data.get('speed'))} ETA {_format_eta(data.get('eta'))}"
-            )
-            if sys.stdout.isatty():
-                frame = self.spinner_frames[self.spinner_idx % len(self.spinner_frames)]
-                self.spinner_idx += 1
-                print(f"\r    {frame} {line}", end="", flush=True)
-                self.active = True
-            else:
-                print(f"    {line}", flush=True)
-        elif status == "finished":
-            self.clear()
-            filename = data.get("filename")
-            if filename:
-                print(f"    [download] Готов файл: {os.path.basename(filename)}", flush=True)
 
 
 _DOWNLOAD_PROGRESS_RE = re.compile(
@@ -1481,7 +1390,7 @@ def create_author_images(project_name: str):
     author_dir = base_author_dir / upd_subdir if upd_subdir else base_author_dir
 
     if not channels_csv.exists():
-        print(f"⏭️  Файл channels.csv не найден — пропускаю создание плашек источников.")
+        print("⏭️  Файл channels.csv не найден — пропускаю создание плашек источников.")
         return
 
     data: List[Tuple[str, str, str, str]] = []  # (source_address, url, channel, title)
@@ -1740,7 +1649,7 @@ def download_images(project_name: str):
     os.makedirs(pictures_dir, exist_ok=True)
 
     if not os.path.exists(csv_file):
-        print(f"⏭️  Файл image_links.csv не найден — пропускаю скачивание изображений.")
+        print("⏭️  Файл image_links.csv не найден — пропускаю скачивание изображений.")
         return
 
     links = []
@@ -1791,7 +1700,7 @@ def download_images(project_name: str):
 
     print(f"Скачано: {ok}, ошибок: {fail}, пропущено (уже есть): {len(links) - len(to_download)}")
     if fail:
-        print(f"Ошибки: errors/stage_2/stage_images.csv")
+        print("Ошибки: errors/stage_2/stage_images.csv")
 
 
 SCRIPT_TASKS = [
@@ -1845,30 +1754,6 @@ SCRIPT_TASKS = [
         "needs_project": True,
         "continue_on_error": True,
     },
-    {
-        "id": "upscale_photos",
-        "title": "Апскейл фото (Real-ESRGAN, вручную, тяжёлая GPU-задача)",
-        "script": "6_upscale_photos.py",
-        "needs_project": True,
-        "continue_on_error": True,
-    },
-    {
-        "id": "sort_errors",
-        "title": "Разобрать ошибки скачивания",
-        "script": "sort_errors.py",
-        "needs_project": True,
-        "continue_on_error": True,
-    },
-]
-
-CORE_STAGES = [
-    {"id": "stage_structure", "title": "Создать структуру папок", "run_mode": "stage_structure", "needs_project": True},
-    {"id": "stage_parse_links", "title": "Парсинг Google таблицы", "run_mode": "stage_parse_links", "needs_project": True, "needs_sheets": True},
-    {"id": "stage_transcribe", "title": "Транскрипция озвучки (Whisper, по словам)", "run_mode": "stage_transcribe", "needs_project": True},
-    {"id": "stage_xml", "title": "Текстовый оверлей (по словам, без склейки)", "run_mode": "stage_xml", "needs_project": True},
-    {"id": "stage_enrich", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "needs_project": True},
-    {"id": "stage_author", "title": "Создать PNG-плашки источников", "run_mode": "stage_author", "needs_project": True},
-    {"id": "stage_images", "title": "Скачать изображения", "run_mode": "stage_images", "needs_project": True},
 ]
 
 # Стадии проекта: каждый шаг FLOW_STEP_CATALOG принадлежит ровно одной.
@@ -2002,12 +1887,6 @@ def install_ffmpeg():
     print("Установите ffmpeg вручную и повторите запуск зависимостей.")
 
 
-def install_realesrgan_dependency():
-    print("\n=== Проверка Real-ESRGAN ===")
-    install_realesrgan(BASE_DIR, sys.executable)
-    print("✓ Real-ESRGAN установлен")
-
-
 def install_whisper_dependency():
     print("\n=== Проверка движка транскрипции ===")
     engine = _install_whisper()
@@ -2100,7 +1979,7 @@ def install_all_dependencies():
     print(f"Version: {platform.python_version()}")
     install_python_requirements()
     install_ffmpeg()
-    install_realesrgan_dependency()
+    install_whisper_dependency()
     if install_node_dependency():
         install_paper_pipeline_dependency()
     check_chrome_for_puppeteer()
@@ -2873,7 +2752,7 @@ def run_direct_video_download():
     video_direct_root = project_subdir(project_dir, "video_direct")
     video_direct_root.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n📁 Корень: video_direct/ (отдельная папка на каждое видео)")
+    print("\n📁 Корень: video_direct/ (отдельная папка на каждое видео)")
     print(f"📊 Видео к скачиванию: {len(urls)}")
 
     # Получаем метаданные каналов заранее (для плашек и названий папок)
@@ -2898,7 +2777,7 @@ def run_direct_video_download():
             suffix += 1
         return candidate
 
-    print(f"\n=== Скачивание ===")
+    print("\n=== Скачивание ===")
     from progress_ui import StatusBoard
     ok = fail = 0
     pause_seconds = get_video_download_pause_seconds()
@@ -2987,7 +2866,7 @@ def run_gazety_generation():
     gazety_root = project_subdir(project_dir, "gazety_direct")
     gazety_root.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n📁 Корень: gazety_direct/ (отдельная папка на каждую статью)")
+    print("\n📁 Корень: gazety_direct/ (отдельная папка на каждую статью)")
     print(f"📊 Статей к генерации: {len(urls)}")
 
     def _slug_for(url: str) -> str:

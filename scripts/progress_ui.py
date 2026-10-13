@@ -38,26 +38,6 @@ def render_bar(fraction: float, width: int = BAR_WIDTH) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def print_bar(prefix: str, fraction: float, suffix: str = "", width: int = BAR_WIDTH, stream=None) -> None:
-    """Печатает/обновляет индикатор в текущей строке (без перевода строки).
-    Вызывать повторно с новым fraction для того же индикатора; завершить
-    вызовом finish_bar()."""
-    stream = stream or sys.stdout
-    bar = render_bar(fraction, width)
-    pct = f"{fraction * 100:5.1f}%"
-    line = f"{prefix} [{bar}] {pct}"
-    if suffix:
-        line += f" {suffix}"
-    stream.write("\r" + line + " " * 4)
-    stream.flush()
-
-
-def finish_bar(stream=None) -> None:
-    stream = stream or sys.stdout
-    stream.write("\n")
-    stream.flush()
-
-
 _BAR_RE = re.compile(r"[█░]+")
 _PCT_RE = re.compile(r"\d{1,3}(?:\.\d)?%")
 _MARK_STYLES = {"✓": "ok", "✅": "ok", "✗": "err", "❌": "err", "⚠": "warn", "⚠️": "warn", "→": "accent", "·": "muted"}

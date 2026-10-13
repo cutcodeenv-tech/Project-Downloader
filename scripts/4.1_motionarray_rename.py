@@ -243,7 +243,7 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
         print("⏭️  Папка video_motionarray не найдена — пропускаем.")
         return
 
-    print(f"\n=== ПЕРЕМЕЩЕНИЕ И ПЕРЕИМЕНОВАНИЕ ВИДЕО ИЗ MOTIONARRAY ===")
+    print("\n=== ПЕРЕМЕЩЕНИЕ И ПЕРЕИМЕНОВАНИЕ ВИДЕО ИЗ MOTIONARRAY ===")
     print(f"Проект: {project_name}")
     print(f"Директория с видео: {motionarray_dir}")
     print(f"CSV файл со ссылками: {csv_file}")
@@ -372,10 +372,10 @@ def process(dry_run: bool = False, project_name: Optional[str] = None) -> None:
     # Сохраняем лог переименований
     if rename_log_data:
         save_rename_log(project_name, rename_log_data)
-        print(f"\n📝 Лог переименований сохранен в CSV файл")
+        print("\n📝 Лог переименований сохранен в CSV файл")
 
     # Выводим итоговую статистику
-    print(f"\n=== РЕЗУЛЬТАТЫ ===")
+    print("\n=== РЕЗУЛЬТАТЫ ===")
     print(f"✅ Успешно перемещено и переименовано: {successful_renames}")
     print(f"❌ Ошибок: {failed_renames}")
     print(f"📁 Переименованные видео перемещены в: {renamed_dir}")

@@ -34,8 +34,7 @@ from PIL import Image
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from photo_filmstrip_anim import (
     OUTPUT_W, OUTPUT_H, OUTPUT_ASPECT, CANVAS_SCALE, STRIP_WIDTH_FRACTION,
-    INTRO_S, HOLD_S, PAN_S, FPS, FRAME_PADDING,
-    SHAKE_POS_AMP, SHAKE_ZOOM_AMP, STOPMOTION_STEP,
+    FPS, FRAME_PADDING,
     ease_in_out, build_timeline, apply_shake, stepped_time,
     build_radial_mask, apply_zoom_blur, apply_chromatic_aberration, BgVideoReader,
     _DEFAULT_BG_VIDEO, _BG_START_FRAME,

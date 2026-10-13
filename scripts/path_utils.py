@@ -85,10 +85,6 @@ def get_data_dir(current_file: str) -> Path:
     return get_base_dir(current_file) / "data"
 
 
-def get_projects_root(current_file: str) -> Path:
-    return get_data_dir(current_file)
-
-
 def get_assets_dir(current_file: str) -> Path:
     env_assets_dir = os.getenv("ASSETS_DIR")
     if env_assets_dir:
@@ -101,10 +97,6 @@ def get_assets_media_dir(current_file: str) -> Path:
     if env_assets_media_dir:
         return Path(env_assets_media_dir).expanduser().resolve()
     return get_base_dir(current_file) / "assets_media"
-
-
-def get_scripts_dir(current_file: str) -> Path:
-    return get_base_dir(current_file) / "scripts"
 
 
 def get_project_dir(current_file: str, project_name: str) -> Path:

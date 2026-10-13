@@ -69,14 +69,6 @@ def extract_video_id(url: str) -> str:
     return ''
 
 
-def find_video_files(directory: str) -> list[str]:
-    exts = ['*.mp4', '*.mkv', '*.webm', '*.avi', '*.mov', '*.flv', '*.m4v']
-    files = []
-    for ext in exts:
-        files.extend(glob.glob(os.path.join(directory, ext)))
-    return files
-
-
 def video_already_downloaded(base_video_dir: str, video_id: str) -> bool:
     """Проверяет наличие видео по ID во всех папках (включая волны upd_*)."""
     if not video_id:
@@ -339,7 +331,7 @@ def main():
     # cookies
     cookies_file = get_cookies_file(base_dir)
     if cookies_file and os.path.exists(cookies_file):
-        print(f'✓ cookies.txt найден')
+        print('✓ cookies.txt найден')
     else:
         print('⚠️  cookies.txt не найден (может потребоваться для YouTube)')
         cookies_file = None
@@ -445,7 +437,7 @@ def main():
             time.sleep(pause_seconds)
     board.close()
 
-    print(f'\n=== ИТОГО ===')
+    print('\n=== ИТОГО ===')
     print(f'Скачано: {ok_count}  |  Ошибок: {fail_count}  |  Пропущено: {len(skipped)}')
     print(f'📁 {video_dir}')
 

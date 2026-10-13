@@ -15,7 +15,6 @@ core/main.py (stage_images, direct_video, stage_author), передаются с
 import csv
 import hashlib
 import importlib.util
-import re
 import shutil
 import subprocess
 import sys
@@ -98,7 +97,6 @@ def _retry_pullvids_download(project_name: str, row: dict):
     project_dir = _project_dir(project_name)
     video_dir = str(project_subdir(project_dir, "video"))
     cookies_file = None
-    configured = None
     default_cookies = Path(SCRIPT_DIR).parent / "cookies.txt"
     if default_cookies.exists():
         cookies_file = str(default_cookies)
@@ -162,7 +160,6 @@ def _load_motionarray_errors(project_name: str) -> list:
     log_path = project_subdir(project_dir, "database") / f"osnovateli_doc_{project_name}_motionarray_rename_log.csv"
     if not log_path.exists():
         return []
-    rows = []
     latest: dict[str, dict] = {}
     try:
         with open(log_path, "r", encoding="utf-8", newline="") as f:

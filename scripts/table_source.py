@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Загрузка исходной таблицы проекта: локальный файл или Google-таблица."""
 import csv
-import os
 import re
 from pathlib import Path
 

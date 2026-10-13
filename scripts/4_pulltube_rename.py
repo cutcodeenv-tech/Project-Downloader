@@ -307,7 +307,7 @@ def process(
     csv_file = get_youtube_links_csv_path(project_name)
     renamed_dir = get_renamed_videos_dir(project_name)
 
-    print(f"\n=== ПЕРЕМЕЩЕНИЕ И ПЕРЕИМЕНОВАНИЕ ВИДЕО ===")
+    print("\n=== ПЕРЕМЕЩЕНИЕ И ПЕРЕИМЕНОВАНИЕ ВИДЕО ===")
     print(f"Проект: {project_name}")
     print(f"Директория с видео: {video_dir}")
     print(f"CSV файл со ссылками: {csv_file}")
@@ -483,9 +483,9 @@ def process(
 
     if rename_log_data:
         save_rename_log(project_name, rename_log_data)
-        print(f"\n📝 Лог переименований сохранен в CSV файл")
+        print("\n📝 Лог переименований сохранен в CSV файл")
 
-    print(f"\n=== РЕЗУЛЬТАТЫ ===")
+    print("\n=== РЕЗУЛЬТАТЫ ===")
     print(f"✅ Успешно перемещено и переименовано: {successful_renames}")
     print(f"❌ Ошибок: {failed_renames}")
     print(f"📁 Переименованные видео перемещены в: {renamed_dir}")
