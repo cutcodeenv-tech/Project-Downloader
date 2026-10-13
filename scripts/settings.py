@@ -71,6 +71,52 @@ SETTINGS_FIELDS = [
     },
 ]
 
+SETTINGS_FIELDS += [
+    {
+        "key": "VIDEO_SECTION_SECONDS",
+        "label": "Ссылка с ?t= — что скачивать",
+        "kind": "choice",
+        "choices": [
+            ("0", "Видео целиком (таймкод только для справки)"),
+            ("30", "Фрагмент 30 с от таймкода"),
+            ("60", "Фрагмент 60 с от таймкода"),
+            ("120", "Фрагмент 2 мин от таймкода"),
+        ],
+        "default": "0",
+        "restart_required": False,
+    },
+    {
+        "key": "BACKGROUND_VIDEO",
+        "label": "YouTube-видео качать в фоне, параллельно остальным шагам",
+        "kind": "choice",
+        "choices": [("on", "Да"), ("off", "Нет, по очереди")],
+        "default": "on",
+        "restart_required": False,
+    },
+    {
+        "key": "NOTIFY",
+        "label": "Уведомлять об окончании прогона (macOS / Telegram)",
+        "kind": "choice",
+        "choices": [("on", "Да"), ("off", "Нет")],
+        "default": "on",
+        "restart_required": False,
+    },
+    {
+        "key": "TELEGRAM_BOT_TOKEN",
+        "label": "Telegram: токен бота для уведомлений",
+        "kind": "secret",
+        "default": None,
+        "restart_required": False,
+    },
+    {
+        "key": "TELEGRAM_CHAT_ID",
+        "label": "Telegram: chat id для уведомлений",
+        "kind": "text",
+        "default": None,
+        "restart_required": False,
+    },
+]
+
 SETTINGS_FIELD_MAP = {field["key"]: field for field in SETTINGS_FIELDS}
 
 

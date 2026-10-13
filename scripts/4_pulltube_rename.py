@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover
     requests = None
 
 from path_utils import get_data_dir, project_subdir
-from youtube_utils import youtube_url_kind, clean_url, extract_video_id
+from youtube_utils import youtube_url_kind, clean_url, extract_video_id, video_section, section_tag, matches_section
 _DATA_DIR = get_data_dir(__file__)
 
 REQUEST_TIMEOUT = 20
@@ -231,13 +231,10 @@ def _strip_source_prefix(filename: str) -> str:
     return re.sub(r'^[A-Za-z]+\d+(?:_\d+)? ', '', filename, count=1)
 
 
-def find_file_by_video_id(files: List[Path], video_id: str) -> Optional[Path]:
-    """Ищет скачанный файл по [id] в имени (yt-dlp кладёт '%(title)s [%(id)s].ext')."""
-    if not video_id:
-        return None
-    tag = f"[{video_id}]"
+def find_file_by_video_id(files: List[Path], video_id: str, section=None) -> Optional[Path]:
+    """Ищет скачанный файл по [id] (и метке фрагмента [tA-B], если качали кусок)."""
     for f in files:
-        if tag in f.name:
+        if matches_section(f.name, video_id, section):
             return f
     return None
 
@@ -387,8 +384,9 @@ def process(
             continue
         cleaned = clean_url(url)
         vid = extract_video_id(cleaned)
-        key = vid or cleaned
-        group = groups.setdefault(key, {'url': cleaned, 'vid': vid, 'cells': []})
+        section = video_section(cleaned)
+        key = f"{vid}{section_tag(section)}" if vid else cleaned
+        group = groups.setdefault(key, {'url': cleaned, 'vid': vid, 'section': section, 'cells': []})
         group['cells'].append(source_address)
 
     if skipped_nonvideo:
@@ -398,6 +396,7 @@ def process(
         cells = group['cells']
         url = group['url']
         vid = group['vid']
+        section = group['section']
         dup_note = f"  (повторов: {len(cells)})" if len(cells) > 1 else ""
         print(f"\n🔍 Видео {vid or url}{dup_note} → ячейки: {', '.join(cells)}")
 
@@ -409,15 +408,15 @@ def process(
         # 1) Идемпотентность: уже переименованная копия этого видео в renamed_videos.
         if vid and renamed_dir.exists():
             for f in renamed_dir.iterdir():
-                if f.is_file() and f"[{vid}]" in f.name and f.suffix.lower() in VIDEO_EXTENSIONS:
+                if f.is_file() and matches_section(f.name, vid, section) and f.suffix.lower() in VIDEO_EXTENSIONS:
                     canonical = f
                     base_name = _strip_source_prefix(f.name)
                     break
 
         # 2) Иначе берём свежий файл из video/: сначала по [id], потом по названию.
         if canonical is None:
-            src_in_video = find_file_by_video_id(files, vid)
-            if src_in_video is None:
+            src_in_video = find_file_by_video_id(files, vid, section)
+            if src_in_video is None and not section:
                 title = get_youtube_title(
                     url, session=http_session,
                     cookies_file=cookies_file, cookies_from_browser=cookies_from_browser,
@@ -429,7 +428,8 @@ def process(
                         _log(sa, '', '', url, '', 'FAILED - не удалось извлечь название')
                         failed_renames += 1
                     continue
-                src_in_video = find_best_match_file(files, title, norm_by_path)
+                whole_files = [f for f in files if not re.search(r'\[t\d+-\d+\]', f.name)]
+                src_in_video = find_best_match_file(whole_files, title, norm_by_path)
             if src_in_video is None:
                 print("❌ Соответствующий файл не найден")
                 for sa in cells:

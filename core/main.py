@@ -136,7 +136,7 @@ DEFAULT_DATA_DIR = DATA_DIR
 
 from path_utils import ensure_project_marker, read_project_marker, write_project_marker, list_projects, project_subdir, get_assets_dir, PROJECT_FOLDERS, TEMPLATE_EXTRA_DIRS
 import table_source
-from youtube_utils import is_downloadable_youtube_video
+from youtube_utils import is_downloadable_youtube_video, attach_cell_range
 
 
 WHISPER_MODEL_DEFAULT = "mlx-community/whisper-large-v3-turbo"
@@ -415,7 +415,9 @@ def parse_links(project_name):
                 cell = str(value).strip()
                 if not cell:
                     continue
-                for idx, url in enumerate(re.findall(r'https?://[^\s,;"\'<>]+', cell), 1):
+                for idx, m in enumerate(re.finditer(r'https?://[^\s,;"\'<>]+', cell), 1):
+                    # «<ссылка> 1:35-2:10» → скачивается только этот фрагмент
+                    url = attach_cell_range(m.group(0), cell[m.end():])
                     all_links.append({
                         'source_address': f"{letter}{row_num}_{idx}",
                         'url': url,
@@ -1096,8 +1098,12 @@ def create_xml_placeholders(project_name: str):
     # candidate matches) or unmatched (none found). Run the interactive
     # reviewer right here, in this same terminal, with real stdin -- the
     # quiet subprocess runner above can't do that (its stdin is /dev/null).
-    print("\nЕсть строки, которые нужно подтвердить вручную:\n")
-    subprocess.run([sys.executable, str(review_script), "--matches", str(matches_path)], cwd=str(BASE_DIR), env=env)
+    if unattended():
+        print("\n⚠️  Есть неоднозначные строки оверлея — в очереди берём предложенные варианты, "
+              "проверить можно позже, запустив этот шаг вручную.")
+    else:
+        print("\nЕсть строки, которые нужно подтвердить вручную:\n")
+        subprocess.run([sys.executable, str(review_script), "--matches", str(matches_path)], cwd=str(BASE_DIR), env=env)
 
     # Re-run: TEXT_OVERLAY_FORCE=1 means proceed no matter what's still
     # left unresolved after that one review pass (skipped rows just won't
@@ -1773,18 +1779,42 @@ FLOW_STEP_CATALOG = [
     {"id": "stage_transcribe", "kind": "stage", "title": "Транскрипция озвучки (Whisper, по словам)", "run_mode": "stage_transcribe", "stage": 1},
     {"id": "stage_xml", "kind": "stage", "title": "Текстовый оверлей (по словам, без склейки)", "run_mode": "stage_xml", "stage": 1},
     {"id": "stage_enrich", "kind": "stage", "title": "Обогащение YouTube-каналов", "run_mode": "stage_enrich", "stage": 1},
-    {"id": "stage_images", "kind": "stage", "title": "Скачать изображения", "run_mode": "stage_images", "stage": 2},
+    # YouTube-видео идёт первым в стадии 2: оно качается в фоне (см.
+    # BackgroundStep), пока остальные шаги стадии работают параллельно.
     {"id": "pullvids_download", "kind": "script", "title": "Скачать YouTube видео (yt-dlp)", "script_id": "pullvids_download", "stage": 2},
-    {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео", "script_id": "pulltube_rename", "stage": 2},
+    {"id": "stage_images", "kind": "stage", "title": "Скачать изображения", "run_mode": "stage_images", "stage": 2},
     {"id": "motionarray_rename", "kind": "script", "title": "Переименовать MotionArray видео", "script_id": "motionarray_rename", "stage": 2},
     {"id": "smart_cropping", "kind": "script", "title": "Кроп 16:9", "script_id": "smart_cropping", "stage": 2},
     {"id": "stage_author", "kind": "stage", "title": "Создать PNG-плашки источников", "run_mode": "stage_author", "stage": 2},
+    {"id": "pulltube_rename", "kind": "script", "title": "Переименовать YouTube видео", "script_id": "pulltube_rename", "stage": 2},
     {"id": "photo_filmstrip", "kind": "script", "title": "Собрать плёнку с фото (B1-B5, B6-B10, ...)", "script_id": "photo_filmstrip", "stage": 3},
     {"id": "photo_filmstrip_anim", "kind": "script", "title": "Анимация плёнки — стол с фото", "script_id": "photo_filmstrip_anim", "stage": 3},
     {"id": "screenshots", "kind": "script", "title": "Статьи на рваной бумаге (текст + подсветка заголовка)", "script_id": "screenshots", "stage": 3},
 ]
 
 DEFAULT_NEW_PROJECT_STEP_IDS = [step["id"] for step in FLOW_STEP_CATALOG]
+
+# От чего зависит шаг. Если зависимость упала в этом же прогоне, шаг
+# пропускается (делать его бессмысленно), а все независимые шаги идут дальше.
+# Зависимость, которой нет в текущем прогоне, считается выполненной раньше.
+STEP_DEPENDENCIES = {
+    "stage_parse_links": ["stage_structure"],
+    "stage_transcribe": ["stage_structure"],
+    "stage_xml": ["stage_transcribe"],
+    "stage_enrich": ["stage_parse_links"],
+    "stage_images": ["stage_parse_links"],
+    "pullvids_download": ["stage_parse_links"],
+    "pulltube_rename": ["pullvids_download"],
+    "motionarray_rename": ["stage_parse_links"],
+    "smart_cropping": ["stage_images"],
+    "stage_author": ["stage_enrich"],
+    "photo_filmstrip": ["smart_cropping"],
+    "photo_filmstrip_anim": ["photo_filmstrip"],
+    "screenshots": ["stage_parse_links"],
+}
+
+# Шаги, которые можно запускать в фоне, и шаги, которые обязаны дождаться их.
+BACKGROUND_STEP_IDS = {"pullvids_download"}
 
 
 def stage_step_ids(stage_number: int) -> list:
@@ -2071,7 +2101,16 @@ def select_many(title, options, preselected=None):
     return picked
 
 
+def unattended() -> bool:
+    """Режим без вопросов (очередь проектов): вопросы внутри шагов берут
+    ответ по умолчанию, ручные проверки пропускаются."""
+    return os.getenv("UNATTENDED", "").strip() == "1"
+
+
 def ask_confirm(message, default=True):
+    if unattended():
+        print(f"{message} → {'да' if default else 'нет'} (очередь, без вопросов)")
+        return default
     if can_use_interactive_menu():
         answer = questionary.confirm(message, default=default, style=QUESTIONARY_STYLE).ask()
         if answer is None:
@@ -2259,7 +2298,113 @@ def run_core_stage(run_mode: str, project_name: str):
     raise RuntimeError(f"Неизвестная стадия: {run_mode}")
 
 
-def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selected_ids=None):
+class BackgroundStep:
+    """Скрипт-шаг, запущенный в фоне: вывод уходит в лог-файл проекта, а
+    передний план продолжает другие шаги. progress() — последняя строка
+    прогресса из лога (скрипты в не-TTY печатают снапшоты StatusBoard)."""
+
+    _PROGRESS_RE = re.compile(r"скачано (\d+)/(\d+)")
+
+    def __init__(self, step_id: str, task: dict, project_name: str, image_mode: str):
+        self.step_id = step_id
+        self.title = task["title"]
+        logs_dir = project_subdir(get_project_dir(project_name), "database") / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        self.log_path = logs_dir / f"{step_id}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+        self._log = open(self.log_path, "w", encoding="utf-8")
+        self.started = time.monotonic()
+        self.proc = subprocess.Popen(
+            [sys.executable, str(SCRIPTS_DIR / task["script"])],
+            cwd=str(BASE_DIR),
+            env=build_script_env(project_name=project_name, image_mode=image_mode),
+            stdin=subprocess.DEVNULL,
+            stdout=self._log,
+            stderr=subprocess.STDOUT,
+        )
+
+    def running(self) -> bool:
+        return self.proc.poll() is None
+
+    def progress(self) -> str:
+        try:
+            tail = self.log_path.read_text(encoding="utf-8", errors="replace")[-4000:]
+        except OSError:
+            return ""
+        matches = self._PROGRESS_RE.findall(tail)
+        if matches:
+            done, total = matches[-1]
+            return f"{done}/{total}"
+        return ""
+
+    def status_line(self) -> str:
+        minutes = int(time.monotonic() - self.started) // 60
+        progress = self.progress()
+        return f"{self.title} — в фоне{', скачано ' + progress if progress else ''} ({minutes} мин)"
+
+    def wait(self) -> bool:
+        """Ждёт завершения со спиннером, возвращает True при успехе."""
+        from progress_ui import console as rich_console, SPINNER_FRAMES
+        frame = 0
+        is_tty = sys.stdout.isatty()
+        while self.running():
+            if is_tty:
+                sys.stdout.write("\r\x1b[K")
+                rich_console.print(f"[accent]{SPINNER_FRAMES[frame % len(SPINNER_FRAMES)]}[/] "
+                                   f"Жду: {self.status_line()}", end="")
+                sys.stdout.flush()
+                frame += 1
+            time.sleep(0.5)
+        if is_tty:
+            sys.stdout.write("\r\x1b[K")
+        self._log.close()
+        return self.proc.returncode == 0
+
+    def stop(self) -> None:
+        if self.running():
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self._log.close()
+
+
+def background_steps_enabled() -> bool:
+    return (os.getenv("BACKGROUND_VIDEO") or "on").strip().lower() != "off"
+
+
+def _print_flow_summary(project_name: str, results: dict) -> None:
+    from progress_ui import console as rich_console
+    from rich.table import Table
+    from rich.text import Text
+    from rich import box
+
+    marks = {
+        "done": ("✓", "ok", "готово"),
+        "skipped": ("⏭", "muted", "нечего делать"),
+        "failed": ("✗", "err", "ошибка"),
+        "blocked": ("⏭", "warn", "пропущен: упал предыдущий шаг"),
+    }
+    table = Table(box=box.SIMPLE_HEAVY, show_header=False, pad_edge=False)
+    table.add_column("mark", width=3)
+    table.add_column("title")
+    table.add_column("note", justify="right")
+    for step_id, status in results.items():
+        mark, style, note = marks.get(status, ("·", "muted", status))
+        table.add_row(Text(mark, style=style), Text(FLOW_STEP_MAP[step_id]["title"]), Text(note, style=style))
+    rich_console.print(f"\n[title]Итог прогона — «{project_name}»[/]")
+    rich_console.print(table)
+
+
+def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selected_ids=None,
+                       interactive: bool = True) -> dict:
+    """Выполняет шаги по порядку и возвращает {step_id: статус}.
+
+    Ошибка одного шага не обрывает прогон: зависящие от него шаги
+    пропускаются (STEP_DEPENDENCIES), остальные выполняются. YouTube-видео
+    качается в фоне параллельно остальным шагам; шаги, которые от него
+    зависят, ждут его в конце прогона. Ctrl+C останавливает прогон,
+    прогресс сохраняется для «Продолжить работу над проектом»."""
     ensure_core_dependencies()
     ordered_ids = normalize_flow_step_ids(flow_name, selected_ids or [])
     if not ordered_ids:
@@ -2274,67 +2419,141 @@ def execute_flow_steps(project_name: str, image_mode: str, flow_name: str, selec
         "last_run_at": datetime.now().isoformat(timespec="seconds"),
         "current_wave": os.getenv("UPD_SUBDIR", "").strip(),
     }))
-    from progress_ui import stage_header
+    from progress_ui import stage_header, console as rich_console
 
-    total_steps = len(ordered_ids)
-    for step_idx, step_id in enumerate(ordered_ids, 1):
+    def set_step_status(step_id, status, started=False):
+        def mutate(state):
+            entry = state.setdefault("steps", {}).setdefault(step_id, {})
+            entry.update({"title": FLOW_STEP_MAP[step_id]["title"], "status": status,
+                          "kind": FLOW_STEP_MAP[step_id]["kind"]})
+            if started:
+                entry.update({"started_at": datetime.now().isoformat(timespec="seconds"), "finished_at": ""})
+            else:
+                entry["finished_at"] = datetime.now().isoformat(timespec="seconds")
+        update_project_state(project_name, mutate)
+
+    results: dict = {}
+    background: dict = {}       # step_id -> BackgroundStep
+    deferred: list = []         # шаги, ждущие фоновые
+    started_at = time.monotonic()
+
+    def blocked_by(step_id):
+        for dep in STEP_DEPENDENCIES.get(step_id, []):
+            if results.get(dep) in ("failed", "blocked"):
+                return dep
+        return None
+
+    def waits_for_background(step_id):
+        return any(dep in background for dep in STEP_DEPENDENCIES.get(step_id, []))
+
+    def run_step(step_id, step_idx):
         step = FLOW_STEP_MAP[step_id]
         stage_number = step.get("stage") or 0
         os.environ["STAGE_NUMBER"] = str(stage_number or "")
         stage_title = STAGE_MAP.get(stage_number, {}).get("title", "")
-        stage_header(project_name, stage_number, stage_title, step_idx, total_steps, step["title"])
-        update_project_state(project_name, lambda state, step_id=step_id, title=step["title"]: state.setdefault("steps", {}).update({
-            step_id: {
-                "title": title,
-                "status": "running",
-                "started_at": datetime.now().isoformat(timespec="seconds"),
-                "finished_at": "",
-                "kind": step["kind"],
-            }
-        }))
+        stage_header(project_name, stage_number, stage_title, step_idx, len(ordered_ids), step["title"])
+        for bg in background.values():
+            if bg.running():
+                rich_console.print(f"[muted]   ⬇ {bg.status_line()}[/]")
+
+        dep = blocked_by(step_id)
+        if dep:
+            rich_console.print(f"[warn]⏭[/] Пропущен: не выполнен шаг «{FLOW_STEP_MAP[dep]['title']}»")
+            results[step_id] = "blocked"
+            set_step_status(step_id, "pending")
+            return
+
+        set_step_status(step_id, "running", started=True)
         try:
-            step_result = None
             if step["kind"] == "stage":
-                step_result = run_core_stage(step["run_mode"], project_name)
+                ok = run_core_stage(step["run_mode"], project_name)
             else:
                 task = SCRIPT_TASK_MAP[step["script_id"]]
-                run_script_task(task, project_name=project_name, image_mode=image_mode)
+                if step_id in BACKGROUND_STEP_IDS and background_steps_enabled():
+                    background[step_id] = BackgroundStep(step_id, task, project_name, image_mode)
+                    rich_console.print(f"[accent]⬇[/] Запущено в фоне, лог: [muted]{background[step_id].log_path}[/]")
+                    return
+                ok = run_script_task(task, project_name=project_name, image_mode=image_mode)
         except KeyboardInterrupt:
-            # Прерванный шаг перезапустится с начала при следующем продолжении
-            # (скрипты не гарантируют возобновление с середины) — поэтому
-            # remaining включает и сам step_id, а не только то, что после него.
-            remaining = ordered_ids[ordered_ids.index(step_id):]
-            update_project_state(project_name, lambda state, step_id=step_id: state.setdefault("steps", {}).setdefault(step_id, {}).update({
-                "status": "interrupted",
-                "finished_at": datetime.now().isoformat(timespec="seconds"),
-            }))
-            update_project_state(project_name, lambda state, rem=remaining, fn=flow_name, im=image_mode: state.update({
-                "status": "paused",
-                "pending_steps": rem,
-                "paused_flow": fn,
-                "paused_image_mode": im,
-                "paused_wave": os.getenv("UPD_SUBDIR", "").strip(),
-            }))
             raise
-        except Exception:
-            update_project_state(project_name, lambda state, step_id=step_id: state.setdefault("steps", {}).setdefault(step_id, {}).update({
-                "status": "failed",
-                "finished_at": datetime.now().isoformat(timespec="seconds"),
-            }))
-            update_project_state(project_name, lambda state: state.update({"status": "failed"}))
-            raise
-        final_status = "skipped" if step_result == "skipped" else "done"
-        update_project_state(project_name, lambda state, step_id=step_id, st=final_status: state.setdefault("steps", {}).setdefault(step_id, {}).update({
-            "status": st,
-            "finished_at": datetime.now().isoformat(timespec="seconds"),
-        }))
+        except Exception as exc:
+            rich_console.print(f"[err]✗[/] {step['title']}: {exc}")
+            results[step_id] = "failed"
+            set_step_status(step_id, "failed")
+            return
+        if ok is False:
+            results[step_id] = "failed"
+        elif ok == "skipped":
+            results[step_id] = "skipped"
+        else:
+            results[step_id] = "done"
+        set_step_status(step_id, "failed" if results[step_id] == "failed" else results[step_id])
 
+    def finish_background(step_id):
+        bg = background[step_id]
+        ok = bg.wait()
+        del background[step_id]
+        results[step_id] = "done" if ok else "failed"
+        set_step_status(step_id, results[step_id])
+        mark = "[ok]✓[/]" if ok else "[err]✗[/]"
+        rich_console.print(f"{mark} {bg.title} [muted](фон, {int(time.monotonic() - bg.started)} с, лог: {bg.log_path.name})[/]")
+
+    current_id = None
+    try:
+        for step_idx, step_id in enumerate(ordered_ids, 1):
+            current_id = step_id
+            if waits_for_background(step_id):
+                deferred.append((step_id, step_idx))
+                continue
+            run_step(step_id, step_idx)
+        for step_id in list(background):
+            current_id = step_id
+            finish_background(step_id)
+        for step_id, step_idx in deferred:
+            current_id = step_id
+            run_step(step_id, step_idx)
+    except KeyboardInterrupt:
+        for bg in background.values():
+            bg.stop()
+        # Прерванный шаг и всё, что не успело выполниться (включая фоновые
+        # и отложенные), перезапустится при продолжении.
+        remaining = [sid for sid in ordered_ids if results.get(sid) not in ("done", "skipped")]
+        if current_id:
+            set_step_status(current_id, "interrupted")
+        for sid in background:
+            set_step_status(sid, "interrupted")
+        update_project_state(project_name, lambda state, rem=remaining, fn=flow_name, im=image_mode: state.update({
+            "status": "paused",
+            "pending_steps": rem,
+            "paused_flow": fn,
+            "paused_image_mode": im,
+            "paused_wave": os.getenv("UPD_SUBDIR", "").strip(),
+        }))
+        raise
+
+    failed = [sid for sid, st in results.items() if st in ("failed", "blocked")]
     update_project_state(project_name, lambda state: state.update({
-        "status": "ready",
+        "status": "failed" if failed else "ready",
         "pending_steps": [],
         "paused_flow": "",
         "paused_wave": "",
     }))
+    _print_flow_summary(project_name, {sid: results[sid] for sid in ordered_ids if sid in results})
+
+    try:
+        from project_review import build_review
+        review_path = build_review(get_project_dir(project_name), project_name)
+        rich_console.print(f"[muted]Обзор материалов: {review_path}[/]")
+    except Exception as exc:
+        rich_console.print(f"[warn]⚠[/] Не удалось обновить обзор материалов: {exc}")
+
+    from notify import notify_flow_finished
+    notify_flow_finished(project_name, results, time.monotonic() - started_at)
+
+    if failed and interactive and can_use_interactive_menu():
+        if ask_confirm("Были ошибки. Открыть «Ошибки проекта»?", default=False):
+            run_errors_menu_entry()
+    return results
 
 
 def ask_new_project_name() -> str:
@@ -2567,24 +2786,111 @@ def _print_stage_checklist(project_name: str, state: dict, stage_number: int, st
     rich_console.print(table)
 
 
+def open_project_review(project_name: str) -> None:
+    from project_review import build_review, open_in_browser
+    path = build_review(get_project_dir(project_name), project_name)
+    print(f"✓ Обзор материалов: {path}")
+    open_in_browser(path)
+
+
+def export_project_timeline(project_name: str) -> None:
+    from timeline_export import build_timeline
+    path, info = build_timeline(get_project_dir(project_name), project_name)
+    print(f"\n✓ Таймлайн: {path}")
+    if info["by_timing"]:
+        print(f"  Строк на таймлайне: {info['rows']}, клипов: {info['clips']}, плашек: {info['plaques']}, "
+              f"карточек оверлея: {info['overlay']}" + (f", озвучка: {info['audio']}" if info["audio"] else ""))
+        if info["unplaced_rows"]:
+            print(f"  ⚠️  Строк без тайминга (не сопоставлены с озвучкой): {info['unplaced_rows']} — их материала на таймлайне нет")
+    else:
+        print(f"  Таймингов озвучки нет — строки разложены подряд, клипов: {info['clips']}. "
+              "Сделайте «Текстовый оверлей», чтобы материал встал под озвучку.")
+    print("  Premiere: File → Import → этот .xml.  DaVinci: File → Import → Timeline → этот .xml")
+
+
+def pending_step_ids(project_name: str) -> list:
+    """Всё, что осталось сделать по проекту: невыполненные шаги стадий 1 и 3
+    и вся стадия 2 (она каждый раз добирает новый материал)."""
+    state = init_project_state(project_name)
+    ids = []
+    for step in FLOW_STEP_CATALOG:
+        if step["stage"] == 2 or effective_step_status(project_name, state, step["id"]) != "done":
+            ids.append(step["id"])
+    return ids
+
+
+def update_from_table_step_ids(project_name: str) -> list:
+    """«Обновить по таблице»: перечитать таблицу и догнать всё, что от неё
+    зависит. Каждый шаг сам пропускает уже готовое, поэтому пересчитывается
+    только новое. Транскрипция от таблицы не зависит — только если её ещё нет."""
+    state = init_project_state(project_name)
+    ids = []
+    for step in FLOW_STEP_CATALOG:
+        if step["id"] == "stage_structure":
+            continue
+        if step["id"] == "stage_transcribe" and effective_step_status(project_name, state, step["id"]) == "done":
+            continue
+        ids.append(step["id"])
+    return ids
+
+
+def prepare_table_reparse(project_name: str) -> None:
+    """Подставляет запомненную ссылку на таблицу, чтобы парсинг не спрашивал её снова."""
+    state = init_project_state(project_name)
+    if (state.get("table_source_kind") or "").strip() == "file":
+        return
+    url = (state.get("spreadsheet_url") or state.get("last_spreadsheet_url") or "").strip()
+    if url and not (os.getenv("SPREADSHEET_URL") or "").strip():
+        os.environ["SPREADSHEET_URL"] = url
+
+
 def run_pipeline_for_project(project_name: str, image_mode: str):
     """Общий движок для нового и для продолжаемого проекта: показывает 3
-    стадии (с отметкой прогресса), даёт выбрать любую, после успешного
-    завершения стадии сразу предлагает продолжить следующей — без
-    необходимости заново открывать меню стадий."""
+    стадии (с отметкой прогресса), даёт выбрать любую, после завершения
+    стадии сразу предлагает продолжить следующей — без необходимости
+    заново открывать меню стадий. Плюс два режима «без вопросов»: все
+    оставшиеся стадии подряд и обновление по таблице."""
     stage_to_run = None
 
     while True:
         if stage_to_run is None:
             state = init_project_state(project_name)
-            options = []
+            options = [
+                ("▶ Все стадии подряд (только то, что ещё не сделано)", "all"),
+            ]
+            if _artifact_parse_links(project_name):
+                options.append(("⟳ Обновить по таблице (перечитать и догнать всё новое)", "update"))
             for stage in STAGES:
                 mark = _STAGE_STATUS_MARK.get(stage_status(state, stage["number"]), " ")
                 options.append((f"[{mark}] Стадия {stage['number']} — {stage['title']}", stage["number"]))
+            options.append(("Обзор материалов в браузере", "review"))
+            options.append(("Таймлайн для Premiere / DaVinci (XML)", "timeline"))
             options.append(("Выход", "exit"))
             choice = select_option(f"Проект: {project_name}", options)
             if choice == "exit":
                 return
+            if choice in ("all", "update"):
+                had_url = "SPREADSHEET_URL" in os.environ
+                if choice == "update":
+                    prepare_table_reparse(project_name)
+                    step_ids = update_from_table_step_ids(project_name)
+                else:
+                    step_ids = pending_step_ids(project_name)
+                try:
+                    execute_flow_steps(project_name, image_mode, "new_project", step_ids)
+                except KeyboardInterrupt:
+                    print("\n\033[33m⏸️  Остановлено. Прогресс сохранён.\033[0m")
+                    return
+                finally:
+                    if not had_url:
+                        os.environ.pop("SPREADSHEET_URL", None)
+                continue
+            if choice == "review":
+                open_project_review(project_name)
+                continue
+            if choice == "timeline":
+                export_project_timeline(project_name)
+                continue
             stage_to_run = choice
 
         step_ids = stage_step_ids(stage_to_run)
@@ -2635,6 +2941,84 @@ def run_pipeline_for_project(project_name: str, image_mode: str):
             stage_to_run = next_stage
         else:
             stage_to_run = None
+
+
+def run_project_queue():
+    """Очередь: несколько проектов подряд без вопросов — например, на ночь.
+    По каждому проекту прогоняется всё недоделанное (или обновление по
+    таблице), ошибки не останавливают очередь, в конце — общая сводка и
+    одно уведомление."""
+    projects = find_all_projects()
+    if not projects:
+        print("Нет существующих проектов.")
+        return
+    paths = select_many("Какие проекты поставить в очередь? (пробел — отметить, Enter — запустить)",
+                        project_menu_options(projects))
+    if not paths:
+        print("Ничего не выбрано.")
+        return
+    mode = select_option("Что делать с каждым проектом?", [
+        ("Все оставшиеся стадии (только то, что ещё не сделано)", "all"),
+        ("Обновить по таблице (перечитать и догнать всё новое)", "update"),
+        ("Отмена", "cancel"),
+    ])
+    if mode == "cancel":
+        return
+
+    # Парсинг таблицы спросит ссылку, если проект её не помнит, — ночью
+    # это остановит очередь. Предупреждаем заранее.
+    no_table = []
+    for path in paths:
+        state = read_project_marker(Path(path)) or {}
+        if not (state.get("spreadsheet_url") or state.get("source_file")):
+            no_table.append(Path(path).name)
+    if no_table:
+        print("⚠️  Эти проекты ещё не знают свою таблицу — парсинг спросит ссылку посреди очереди:")
+        for name in no_table:
+            print(f"   • {name}")
+        if not ask_confirm("Всё равно запускать?", default=False):
+            return
+
+    from notify import notify
+    image_mode = select_image_processing_mode()
+    summary = []
+    started = time.monotonic()
+    os.environ["UNATTENDED"] = "1"
+    for idx, path in enumerate(paths, 1):
+        project_name = activate_project_path(path)
+        print(f"\n\033[36m=== Очередь {idx}/{len(paths)}: {project_name} ===\033[0m")
+        had_url = "SPREADSHEET_URL" in os.environ
+        try:
+            if mode == "update":
+                prepare_table_reparse(project_name)
+                step_ids = update_from_table_step_ids(project_name)
+            else:
+                step_ids = pending_step_ids(project_name)
+            results = execute_flow_steps(project_name, image_mode, "new_project", step_ids, interactive=False)
+            failed = sum(1 for st in results.values() if st in ("failed", "blocked"))
+            summary.append((project_name, "с ошибками" if failed else "готово", failed))
+        except KeyboardInterrupt:
+            print("\nОчередь остановлена.")
+            summary.append((project_name, "прервано", 0))
+            break
+        except Exception as exc:
+            print(f"\n❌ {project_name}: {exc}")
+            summary.append((project_name, f"ошибка: {exc}", 1))
+        finally:
+            if not had_url:
+                os.environ.pop("SPREADSHEET_URL", None)
+            reset_active_projects_root()
+
+    os.environ.pop("UNATTENDED", None)
+    print("\n=== Итог очереди ===")
+    for name, status, _failed in summary:
+        print(f"  {'✓' if status == 'готово' else '✗'} {name}: {status}")
+    minutes = int(time.monotonic() - started) // 60
+    bad = [name for name, status, _ in summary if status != "готово"]
+    notify(
+        "Очередь проектов завершена" + (" с ошибками" if bad else ""),
+        f"Проектов: {len(summary)}, с проблемами: {len(bad)}. Время: {minutes} мин",
+    )
 
 
 def run_new_project():
@@ -2938,11 +3322,15 @@ def run_gazety_generation():
 def _current_setting_display(field: dict) -> str:
     value = os.getenv(field["key"], "").strip()
     if not value:
-        return "по умолчанию" if field["default"] is None else str(field["default"])
+        if field["default"] is None:
+            return "не задано" if field["kind"] in ("text", "secret") else "по умолчанию"
+        value = str(field["default"])
     if field["kind"] == "choice":
         for key, label in field["choices"]:
             if key == value:
                 return label
+    if field["kind"] == "secret":
+        return "задан (…" + value[-4:] + ")"
     return value
 
 
@@ -3004,6 +3392,10 @@ def run_settings_menu():
         if field["kind"] == "choice":
             value_options = [(label, key) for key, label in field["choices"]] + [("— сбросить на умолчание —", "")]
             new_value = select_option(field["label"], value_options)
+        elif field["kind"] in ("text", "secret"):
+            print(f"\n{field['label']}")
+            print(f"Текущее: {_current_setting_display(field)}")
+            new_value = ask_text("Новое значение (пусто — сбросить): ").strip()
         else:
             current = os.getenv(field["key"], "").strip()
             print(f"\n{field['label']}")
@@ -3016,7 +3408,8 @@ def run_settings_menu():
 
         set_setting(field["key"], new_value, __file__)
         if new_value:
-            print(f"✓ Сохранено: {field['label']} = {new_value}")
+            shown = _current_setting_display(field) if field["kind"] == "secret" else new_value
+            print(f"✓ Сохранено: {field['label']} = {shown}")
         else:
             print(f"✓ Сброшено на умолчание: {field['label']}")
         if field.get("restart_required"):
@@ -3174,6 +3567,7 @@ def main_menu():
                     ("3. Скачать видео по ссылкам", "direct_video"),
                     ("4. Сгенерировать газеты по ссылкам", "gazety_direct"),
                     ("5. Скрипты по очереди", "scripts"),
+                    ("Q. Очередь проектов (несколько подряд, например на ночь)", "queue"),
                     ("6. Ошибки проекта", "errors"),
                     ("7. Настройки", "settings"),
                     ("8. Установить ВСЕ зависимости", "install"),
@@ -3191,6 +3585,8 @@ def main_menu():
                 run_gazety_generation()
             elif choice == "scripts":
                 run_selected_task_menu()
+            elif choice == "queue":
+                run_project_queue()
             elif choice == "errors":
                 run_errors_menu_entry()
             elif choice == "settings":

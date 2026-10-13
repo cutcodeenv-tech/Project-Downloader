@@ -13,7 +13,6 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 import yt_dlp
 
@@ -28,7 +27,7 @@ DEFAULT_YTDLP_RETRY_COUNT = 3
 DEFAULT_YTDLP_RETRY_BASE_SECONDS = 5.0
 
 from path_utils import get_data_dir, project_subdir
-from youtube_utils import youtube_url_kind
+from youtube_utils import youtube_url_kind, clean_url, extract_video_id, video_section, section_tag, matches_section
 from progress_ui import render_bar, StatusBoard
 from error_log import log_download_error
 
@@ -41,48 +40,19 @@ if load_dotenv is not None and ENV_FILE.exists():
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
-def is_shorts_url(url: str) -> bool:
-    return '/shorts/' in url
-
-
-def clean_url(url: str) -> str:
-    """Убирает list= из URL если есть конкретное видео (v=), чтобы не качать плейлист."""
-    parsed = urlparse(url)
-    qs = parse_qs(parsed.query, keep_blank_values=True)
-    if 'v' in qs and 'list' in qs:
-        qs.pop('list')
-        qs.pop('index', None)
-        cleaned = parsed._replace(query=urlencode(qs, doseq=True))
-        return urlunparse(cleaned)
-    return url
-
-
-def extract_video_id(url: str) -> str:
-    for pat in [
-        r'(?:v=|/)([0-9A-Za-z_-]{11})(?:[&?]|$)',
-        r'youtu\.be/([0-9A-Za-z_-]{11})',
-        r'embed/([0-9A-Za-z_-]{11})',
-    ]:
-        m = re.search(pat, url)
-        if m:
-            return m.group(1)
-    return ''
-
-
-def video_already_downloaded(base_video_dir: str, video_id: str) -> bool:
-    """Проверяет наличие видео по ID во всех папках (включая волны upd_*)."""
-    if not video_id:
+def video_already_downloaded(base_video_dir: str, video_id: str, section=None) -> bool:
+    """Есть ли уже это видео (или этот фрагмент) во всех папках, включая волны upd_*."""
+    if not video_id or not os.path.isdir(base_video_dir):
         return False
-    search_dirs = [base_video_dir]
-    if os.path.isdir(base_video_dir):
-        search_dirs += [
-            os.path.join(base_video_dir, d)
-            for d in os.listdir(base_video_dir)
-            if os.path.isdir(os.path.join(base_video_dir, d))
-        ]
+    search_dirs = [base_video_dir] + [
+        os.path.join(base_video_dir, d)
+        for d in os.listdir(base_video_dir)
+        if os.path.isdir(os.path.join(base_video_dir, d))
+    ]
+    exts = {'.mp4', '.mkv', '.webm', '.avi', '.mov', '.flv', '.m4v'}
     for d in search_dirs:
-        for ext in ['*.mp4', '*.mkv', '*.webm', '*.avi', '*.mov', '*.flv', '*.m4v']:
-            if glob.glob(os.path.join(d, f'*{video_id}*{ext[1:]}')):
+        for name in os.listdir(d):
+            if os.path.splitext(name)[1].lower() in exts and matches_section(name, video_id, section):
                 return True
     return False
 
@@ -199,16 +169,22 @@ def download_video(
     retry_count = get_ytdlp_retry_count()
     retry_base_sleep = get_ytdlp_retry_base_seconds()
     browser_spec = get_cookies_from_browser(cookies_from_browser)
+    section = video_section(url)
+    tag = section_tag(section)
 
     def build_cmd() -> list[str]:
         cmd = [
             ytdlp_bin,
             "--format", yt_dlp_format_for_quality(video_quality),
             "--merge-output-format", "mp4",
-            "--output", os.path.join(output_dir, "%(title)s [%(id)s].%(ext)s"),
+            "--output", os.path.join(output_dir, "%(title)s [%(id)s]" + (f" {tag}" if tag else "") + ".%(ext)s"),
             "--no-playlist",
             "--newline",
         ]
+        if section:
+            # Только нужный кусок; границы перекодируются, чтобы клип
+            # начинался ровно с таймкода, а не с ближайшего ключевого кадра.
+            cmd += ["--download-sections", f"*{section[0]}-{section[1]}", "--force-keyframes-at-cuts"]
         if browser_spec:
             cmd += ["--cookies-from-browser", browser_spec]
         if cookies_file and os.path.exists(cookies_file):
@@ -216,7 +192,7 @@ def download_video(
         cmd.append(url)
         return cmd
 
-    board.log(f"  🎞️ Качество: {video_quality}")
+    board.log(f"  🎞️ Качество: {video_quality}" + (f"  ✂️ фрагмент {section[0]}–{section[1]} с" if section else ""))
     if browser_spec:
         board.log(f"  🍪 cookies-from-browser: {browser_spec}")
     elif cookies_file and os.path.exists(cookies_file):
@@ -389,15 +365,17 @@ def main():
             continue
         url = clean_url(url)
         vid_id = extract_video_id(url)
-        if vid_id and vid_id in seen_vids:
-            # та же ссылка встречается несколько раз — качаем один раз
+        section = video_section(url)
+        # то же видео (тот же фрагмент) встречается несколько раз — качаем один раз
+        key = (vid_id, section)
+        if vid_id and key in seen_vids:
             continue
         if vid_id:
-            seen_vids.add(vid_id)
+            seen_vids.add(key)
         # уже скачано (в video/ или уже переименовано в renamed_videos/) — пропускаем
         already = vid_id and (
-            video_already_downloaded(base_video_dir, vid_id)
-            or video_already_downloaded(renamed_dir, vid_id)
+            video_already_downloaded(base_video_dir, vid_id, section)
+            or video_already_downloaded(renamed_dir, vid_id, section)
         )
         if already:
             skipped.append(url)
