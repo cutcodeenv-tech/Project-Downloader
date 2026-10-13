@@ -120,20 +120,21 @@ Q. Очередь проектов (несколько подряд, напри�
 
 ```
 data/<название проекта>/
-├── 01_структура_и_метаданные/
-│   ├── database/              # CSV со ссылками, кэши
-│   ├── placeholders_xml/      # текстовый оверлей поверх озвучки
-│   └── voiceover/             # исходная озвучка (аудио/расшифровка)
-├── 02_скачивание_и_подготовка/
-│   ├── images/, images_cropped/
-│   ├── video/, video_motionarray/, renamed_videos/
-│   └── author/                # PNG-плашки источников
-├── 03_упаковка/
-│   ├── filmstrips/, filmstrip_videos/
-│   └── articles/
-├── errors/                    # errors/stage_<N>/<step>.csv — см. «Ошибки проекта»
-├── video_direct/               # ручное скачивание по ссылкам (вне сценария)
-└── gazety_direct/               # ручная генерация статей по ссылкам
+├── 00_Admin/
+│   ├── database/              # таблица, CSV со ссылками, кэши, logs/ фоновых шагов
+│   ├── errors/                # stage_<N>/<шаг>.csv — см. «Ошибки проекта»
+│   └── review.html            # обзор материалов
+├── 01_Project_Files/          # Premiere, DaVinci, After Effects… + <проект>_timeline.xml
+└── 02_Sources/
+    ├── Audio/                 # озвучка и её расшифровка
+    ├── Images/ и Images/Cropped/
+    ├── Video/YT, Video/Renamed, Video/MotionArray, Video/Direct
+    └── Graphics/
+        ├── Placeholders/      # текстовый оверлей
+        ├── Photo/             # PNG-плашки источников
+        ├── Filmstrips/, Filmstrips_video/
+        ├── Web/               # статьи на рваной бумаге
+        └── Web Animate/       # статьи по ссылкам вне сценария
 ```
 
 ## Код

@@ -96,8 +96,8 @@ def _files_for_address(files: list, address: str) -> list:
 
 def _load_errors(project_dir: Path) -> dict:
     by_name = defaultdict(list)
-    errors_root = project_dir / "errors"
-    for csv_path in sorted(errors_root.glob("stage_*/*.csv")):
+    roots = [project_subdir(project_dir, "errors"), project_dir / "errors"]  # + старое место
+    for csv_path in sorted(p for root in roots for p in root.glob("stage_*/*.csv")):
         for row in _read_csv_rows(csv_path):
             name = (row.get("display_name") or "").strip()
             if name:

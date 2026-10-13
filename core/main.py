@@ -1706,7 +1706,7 @@ def download_images(project_name: str):
 
     print(f"Скачано: {ok}, ошибок: {fail}, пропущено (уже есть): {len(links) - len(to_download)}")
     if fail:
-        print("Ошибки: errors/stage_2/stage_images.csv")
+        print("Ошибки: 00_Admin/errors/stage_2/stage_images.csv")
 
 
 SCRIPT_TASKS = [

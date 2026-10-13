@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Лог ошибок скачивания, разложенный по стадиям пайплайна:
 
-    data/<проект>/errors/stage_<N>/<step_id>.csv
+    <проект>/00_Admin/errors/stage_<N>/<step_id>.csv
 
 По одному файлу на шаг — сразу видно, на какой стадии и что именно не
 скачалось. Колонки: display_name (предполагаемое имя файла), url, reason,
@@ -10,21 +10,44 @@ logged_at.
 
 import csv
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 
-from path_utils import get_data_dir
-
-_DATA_DIR = get_data_dir(__file__)
+from path_utils import get_data_dir, project_subdir
 
 
 def project_dir(project_name: str) -> Path:
-    return _DATA_DIR / project_name
+    # Корень проектов читается при каждом вызове: в меню он меняется на лету
+    # (проекты из дополнительных папок), а модуль импортируется один раз.
+    return get_data_dir(__file__) / project_name
+
+
+def errors_root(project_name: str) -> Path:
+    """00_Admin/errors проекта. Ошибки, записанные раньше в <проект>/errors,
+    при первом обращении переносятся туда (строки дописываются в конец,
+    если такой файл уже есть)."""
+    root = project_subdir(project_dir(project_name), "errors")
+    legacy = project_dir(project_name) / "errors"
+    if legacy.is_dir() and legacy.resolve() != root.resolve():
+        for old in sorted(legacy.glob("stage_*/*.csv")):
+            new = root / old.parent.name / old.name
+            new.parent.mkdir(parents=True, exist_ok=True)
+            if new.exists():
+                with open(old, "r", encoding="utf-8", newline="") as src:
+                    rows = list(csv.reader(src))[1:]
+                with open(new, "a", encoding="utf-8", newline="") as dst:
+                    csv.writer(dst).writerows(rows)
+                old.unlink()
+            else:
+                shutil.move(str(old), str(new))
+        shutil.rmtree(legacy, ignore_errors=True)
+    return root
 
 
 def stage_errors_dir(project_name: str, stage_number=None) -> Path:
     stage_number = stage_number or os.getenv("STAGE_NUMBER") or "unknown"
-    d = project_dir(project_name) / "errors" / f"stage_{stage_number}"
+    d = errors_root(project_name) / f"stage_{stage_number}"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -45,10 +68,10 @@ def log_download_error(project_name: str, step_id: str, display_name: str, url: 
 
 def iter_stage_error_files(project_name: str):
     """Обходит все errors/stage_*/*.csv проекта: (stage_number, step_id, path)."""
-    errors_root = project_dir(project_name) / "errors"
-    if not errors_root.exists():
+    root = errors_root(project_name)
+    if not root.exists():
         return
-    for stage_dir in sorted(errors_root.glob("stage_*")):
+    for stage_dir in sorted(root.glob("stage_*")):
         stage_number = stage_dir.name.replace("stage_", "", 1)
         for csv_path in sorted(stage_dir.glob("*.csv")):
             yield stage_number, csv_path.stem, csv_path
@@ -88,7 +111,7 @@ def remove_error(project_name: str, stage_number, step_id: str, display_name: st
     """Убирает строку(и) с этим display_name из errors/stage_<N>/<step_id>.csv
     (успешный повтор или явное «пропустить»). Возвращает True, если что-то
     удалено."""
-    path = project_dir(project_name) / "errors" / f"stage_{stage_number}" / f"{step_id}.csv"
+    path = errors_root(project_name) / f"stage_{stage_number}" / f"{step_id}.csv"
     if not path.exists():
         return False
     try:

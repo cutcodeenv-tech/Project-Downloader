@@ -183,7 +183,7 @@ def process(project_name: str) -> None:
 
     print(f"\nГотово: {ok}, ошибок: {fail}, пропущено (уже есть): {skipped}")
     if fail:
-        print(f"Ошибки: errors/stage_*/{STEP_ID}.csv")
+        print(f"Ошибки: 00_Admin/errors/stage_*/{STEP_ID}.csv")
     print(f"📁 {articles_dir}")
 
 
